@@ -21,3 +21,10 @@ jobs:
       - run: go test ./...
       - run: go build ./...
       - run: shellcheck scripts/install.sh
+
+      # Catch a broken release config on the pull request rather than at tag
+      # time, when a failure blocks a release everyone is waiting for.
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          args: check
+          workdir: tool

@@ -34,9 +34,14 @@ detect_target() {
 
 resolve_version() {
 	[ "$VERSION" != "latest" ] && { echo "$VERSION"; return; }
-	curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-		| sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' \
-		| head -n1
+	# 404 here means the repository has no published release yet, which is a
+	# different problem from a network failure and deserves a different fix.
+	if ! body=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null); then
+		die "no published release found for ${REPO}.
+  Someone needs to cut one first: push a v* tag and let CI build the binaries.
+  To install a specific version once it exists: DEAL_KIT_VERSION=v0.1.0"
+	fi
+	echo "$body" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1
 }
 
 main() {

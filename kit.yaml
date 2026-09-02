@@ -47,14 +47,14 @@ profiles:
 
 artifacts:
   # ---- skills ----
-  - { id: general/conventions,  type: skill, applies_to: [backend, web, mobile], src: skills/general/conventions }
-  - { id: general/pr-workflow,  type: skill, applies_to: [backend, web, mobile], src: skills/general/pr-workflow }
-  - { id: backend/architecture, type: skill, applies_to: [backend], src: skills/backend/architecture }
-  - { id: backend/connections,  type: skill, applies_to: [backend], src: skills/backend/connections }
-  - { id: web/architecture,     type: skill, applies_to: [web],     src: skills/web/architecture }
-  - { id: web/ui,               type: skill, applies_to: [web],     src: skills/web/ui }
-  - { id: mobile/architecture,  type: skill, applies_to: [mobile],  src: skills/mobile/architecture }
-  - { id: mobile/offline,       type: skill, applies_to: [mobile],  src: skills/mobile/offline }
+  - { id: general/conventions,  type: skill, applies_to: [backend, web, mobile], src: skills/general/conventions, group: "Team conventions" }
+  - { id: general/pr-workflow,  type: skill, applies_to: [backend, web, mobile], src: skills/general/pr-workflow, group: "Team conventions" }
+  - { id: backend/architecture, type: skill, applies_to: [backend], src: skills/backend/architecture, group: "Backend" }
+  - { id: backend/connections,  type: skill, applies_to: [backend], src: skills/backend/connections, group: "Backend" }
+  - { id: web/architecture,     type: skill, applies_to: [web],     src: skills/web/architecture, group: "Web" }
+  - { id: web/ui,               type: skill, applies_to: [web],     src: skills/web/ui, group: "Web" }
+  - { id: mobile/architecture,  type: skill, applies_to: [mobile],  src: skills/mobile/architecture, group: "Mobile" }
+  - { id: mobile/offline,       type: skill, applies_to: [mobile],  src: skills/mobile/offline, group: "Mobile" }
 
   # ---- ui-kit (web only: mobile uses React Native Paper) ----
   # Generated from the components' own imports: `requires` mirrors
@@ -63,8 +63,12 @@ artifacts:
   - id: ui-kit/base
     type: component
     applies_to: [web]
+    group: "Foundation"
     src: ui-kit/lib
     dest: "{src}/shared/lib"
+    # Every component depends on base, so hanging the catalog skill here means
+    # installing any component also teaches the agent how to use it.
+    requires: [web/ui]
     npm:
       clsx: "^2.1.1"
       tailwind-merge: "^3.5.0"
@@ -72,18 +76,21 @@ artifacts:
   - id: ui-kit/use-mobile
     type: component
     applies_to: [web]
+    group: "Foundation"
     src: ui-kit/hooks/use-mobile.ts
     dest: "{hooks}/use-mobile.ts"
 
   - id: ui-kit/theme
     type: component
     applies_to: [web]
+    group: "Foundation"
     src: ui-kit/theme.css
     dest: "{src}/theme.css"
 
   - id: ui-kit/accordion
     type: component
     applies_to: [web]
+    group: "Data display"
     src: ui-kit/components/ui/accordion.tsx
     dest: "{ui}/accordion.tsx"
     requires: [ui-kit/base]
@@ -94,6 +101,7 @@ artifacts:
   - id: ui-kit/alert-dialog
     type: component
     applies_to: [web]
+    group: "Overlays"
     src: ui-kit/components/ui/alert-dialog.tsx
     dest: "{ui}/alert-dialog.tsx"
     requires: [ui-kit/base, ui-kit/button, ui-kit/portal-container]
@@ -103,6 +111,7 @@ artifacts:
   - id: ui-kit/alert
     type: component
     applies_to: [web]
+    group: "Feedback"
     src: ui-kit/components/ui/alert.tsx
     dest: "{ui}/alert.tsx"
     requires: [ui-kit/base]
@@ -112,6 +121,7 @@ artifacts:
   - id: ui-kit/aspect-ratio
     type: component
     applies_to: [web]
+    group: "Layout & utilities"
     src: ui-kit/components/ui/aspect-ratio.tsx
     dest: "{ui}/aspect-ratio.tsx"
     npm:
@@ -120,6 +130,7 @@ artifacts:
   - id: ui-kit/avatar
     type: component
     applies_to: [web]
+    group: "Data display"
     src: ui-kit/components/ui/avatar.tsx
     dest: "{ui}/avatar.tsx"
     requires: [ui-kit/base]
@@ -129,6 +140,7 @@ artifacts:
   - id: ui-kit/badge
     type: component
     applies_to: [web]
+    group: "Data display"
     src: ui-kit/components/ui/badge.tsx
     dest: "{ui}/badge.tsx"
     requires: [ui-kit/base]
@@ -139,6 +151,7 @@ artifacts:
   - id: ui-kit/breadcrumb
     type: component
     applies_to: [web]
+    group: "Navigation"
     src: ui-kit/components/ui/breadcrumb.tsx
     dest: "{ui}/breadcrumb.tsx"
     requires: [ui-kit/base]
@@ -149,6 +162,7 @@ artifacts:
   - id: ui-kit/button-group
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/button-group.tsx
     dest: "{ui}/button-group.tsx"
     requires: [ui-kit/base, ui-kit/separator]
@@ -159,6 +173,7 @@ artifacts:
   - id: ui-kit/button
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/button.tsx
     dest: "{ui}/button.tsx"
     requires: [ui-kit/base]
@@ -169,6 +184,7 @@ artifacts:
   - id: ui-kit/calendar
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/calendar.tsx
     dest: "{ui}/calendar.tsx"
     requires: [ui-kit/base, ui-kit/button]
@@ -179,6 +195,7 @@ artifacts:
   - id: ui-kit/card
     type: component
     applies_to: [web]
+    group: "Data display"
     src: ui-kit/components/ui/card.tsx
     dest: "{ui}/card.tsx"
     requires: [ui-kit/base]
@@ -186,6 +203,7 @@ artifacts:
   - id: ui-kit/carousel
     type: component
     applies_to: [web]
+    group: "Data display"
     src: ui-kit/components/ui/carousel.tsx
     dest: "{ui}/carousel.tsx"
     requires: [ui-kit/base, ui-kit/button]
@@ -196,6 +214,7 @@ artifacts:
   - id: ui-kit/chart
     type: component
     applies_to: [web]
+    group: "Data display"
     src: ui-kit/components/ui/chart.tsx
     dest: "{ui}/chart.tsx"
     requires: [ui-kit/base]
@@ -205,6 +224,7 @@ artifacts:
   - id: ui-kit/checkbox
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/checkbox.tsx
     dest: "{ui}/checkbox.tsx"
     requires: [ui-kit/base]
@@ -215,6 +235,7 @@ artifacts:
   - id: ui-kit/collapsible
     type: component
     applies_to: [web]
+    group: "Data display"
     src: ui-kit/components/ui/collapsible.tsx
     dest: "{ui}/collapsible.tsx"
     npm:
@@ -223,6 +244,7 @@ artifacts:
   - id: ui-kit/combobox
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/combobox.tsx
     dest: "{ui}/combobox.tsx"
     requires: [ui-kit/base, ui-kit/button, ui-kit/input-group]
@@ -233,6 +255,7 @@ artifacts:
   - id: ui-kit/command
     type: component
     applies_to: [web]
+    group: "Overlays"
     src: ui-kit/components/ui/command.tsx
     dest: "{ui}/command.tsx"
     requires: [ui-kit/base, ui-kit/dialog, ui-kit/input-group]
@@ -243,6 +266,7 @@ artifacts:
   - id: ui-kit/context-menu
     type: component
     applies_to: [web]
+    group: "Overlays"
     src: ui-kit/components/ui/context-menu.tsx
     dest: "{ui}/context-menu.tsx"
     requires: [ui-kit/base, ui-kit/portal-container]
@@ -253,6 +277,7 @@ artifacts:
   - id: ui-kit/dialog
     type: component
     applies_to: [web]
+    group: "Overlays"
     src: ui-kit/components/ui/dialog.tsx
     dest: "{ui}/dialog.tsx"
     requires: [ui-kit/base, ui-kit/button, ui-kit/portal-container]
@@ -263,12 +288,14 @@ artifacts:
   - id: ui-kit/direction
     type: component
     applies_to: [web]
+    group: "Layout & utilities"
     src: ui-kit/components/ui/direction.tsx
     dest: "{ui}/direction.tsx"
 
   - id: ui-kit/drawer
     type: component
     applies_to: [web]
+    group: "Overlays"
     src: ui-kit/components/ui/drawer.tsx
     dest: "{ui}/drawer.tsx"
     requires: [ui-kit/base]
@@ -278,6 +305,7 @@ artifacts:
   - id: ui-kit/dropdown-menu
     type: component
     applies_to: [web]
+    group: "Overlays"
     src: ui-kit/components/ui/dropdown-menu.tsx
     dest: "{ui}/dropdown-menu.tsx"
     requires: [ui-kit/base, ui-kit/portal-container]
@@ -288,6 +316,7 @@ artifacts:
   - id: ui-kit/empty
     type: component
     applies_to: [web]
+    group: "Feedback"
     src: ui-kit/components/ui/empty.tsx
     dest: "{ui}/empty.tsx"
     requires: [ui-kit/base]
@@ -297,6 +326,7 @@ artifacts:
   - id: ui-kit/field
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/field.tsx
     dest: "{ui}/field.tsx"
     requires: [ui-kit/base, ui-kit/label, ui-kit/separator]
@@ -306,6 +336,7 @@ artifacts:
   - id: ui-kit/hover-card
     type: component
     applies_to: [web]
+    group: "Overlays"
     src: ui-kit/components/ui/hover-card.tsx
     dest: "{ui}/hover-card.tsx"
     requires: [ui-kit/base, ui-kit/portal-container]
@@ -315,6 +346,7 @@ artifacts:
   - id: ui-kit/input-group
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/input-group.tsx
     dest: "{ui}/input-group.tsx"
     requires: [ui-kit/base, ui-kit/button, ui-kit/input, ui-kit/textarea]
@@ -324,6 +356,7 @@ artifacts:
   - id: ui-kit/input-otp
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/input-otp.tsx
     dest: "{ui}/input-otp.tsx"
     requires: [ui-kit/base]
@@ -334,6 +367,7 @@ artifacts:
   - id: ui-kit/input
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/input.tsx
     dest: "{ui}/input.tsx"
     requires: [ui-kit/base]
@@ -343,6 +377,7 @@ artifacts:
   - id: ui-kit/item
     type: component
     applies_to: [web]
+    group: "Data display"
     src: ui-kit/components/ui/item.tsx
     dest: "{ui}/item.tsx"
     requires: [ui-kit/base, ui-kit/separator]
@@ -353,6 +388,7 @@ artifacts:
   - id: ui-kit/kbd
     type: component
     applies_to: [web]
+    group: "Layout & utilities"
     src: ui-kit/components/ui/kbd.tsx
     dest: "{ui}/kbd.tsx"
     requires: [ui-kit/base]
@@ -360,6 +396,7 @@ artifacts:
   - id: ui-kit/label
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/label.tsx
     dest: "{ui}/label.tsx"
     requires: [ui-kit/base]
@@ -367,6 +404,7 @@ artifacts:
   - id: ui-kit/menubar
     type: component
     applies_to: [web]
+    group: "Overlays"
     src: ui-kit/components/ui/menubar.tsx
     dest: "{ui}/menubar.tsx"
     requires: [ui-kit/base, ui-kit/dropdown-menu]
@@ -377,6 +415,7 @@ artifacts:
   - id: ui-kit/native-select
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/native-select.tsx
     dest: "{ui}/native-select.tsx"
     requires: [ui-kit/base]
@@ -386,6 +425,7 @@ artifacts:
   - id: ui-kit/navigation-menu
     type: component
     applies_to: [web]
+    group: "Navigation"
     src: ui-kit/components/ui/navigation-menu.tsx
     dest: "{ui}/navigation-menu.tsx"
     requires: [ui-kit/base]
@@ -397,6 +437,7 @@ artifacts:
   - id: ui-kit/pagination
     type: component
     applies_to: [web]
+    group: "Navigation"
     src: ui-kit/components/ui/pagination.tsx
     dest: "{ui}/pagination.tsx"
     requires: [ui-kit/base, ui-kit/button]
@@ -406,6 +447,7 @@ artifacts:
   - id: ui-kit/popover
     type: component
     applies_to: [web]
+    group: "Overlays"
     src: ui-kit/components/ui/popover.tsx
     dest: "{ui}/popover.tsx"
     requires: [ui-kit/base, ui-kit/portal-container]
@@ -415,12 +457,14 @@ artifacts:
   - id: ui-kit/portal-container
     type: component
     applies_to: [web]
+    group: "Layout & utilities"
     src: ui-kit/components/ui/portal-container.tsx
     dest: "{ui}/portal-container.tsx"
 
   - id: ui-kit/progress
     type: component
     applies_to: [web]
+    group: "Feedback"
     src: ui-kit/components/ui/progress.tsx
     dest: "{ui}/progress.tsx"
     requires: [ui-kit/base]
@@ -430,6 +474,7 @@ artifacts:
   - id: ui-kit/radio-group
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/radio-group.tsx
     dest: "{ui}/radio-group.tsx"
     requires: [ui-kit/base]
@@ -439,6 +484,7 @@ artifacts:
   - id: ui-kit/resizable
     type: component
     applies_to: [web]
+    group: "Layout & utilities"
     src: ui-kit/components/ui/resizable.tsx
     dest: "{ui}/resizable.tsx"
     requires: [ui-kit/base]
@@ -448,6 +494,7 @@ artifacts:
   - id: ui-kit/scroll-area
     type: component
     applies_to: [web]
+    group: "Layout & utilities"
     src: ui-kit/components/ui/scroll-area.tsx
     dest: "{ui}/scroll-area.tsx"
     requires: [ui-kit/base]
@@ -457,6 +504,7 @@ artifacts:
   - id: ui-kit/select
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/select.tsx
     dest: "{ui}/select.tsx"
     requires: [ui-kit/base, ui-kit/portal-container]
@@ -467,6 +515,7 @@ artifacts:
   - id: ui-kit/separator
     type: component
     applies_to: [web]
+    group: "Layout & utilities"
     src: ui-kit/components/ui/separator.tsx
     dest: "{ui}/separator.tsx"
     requires: [ui-kit/base]
@@ -476,6 +525,7 @@ artifacts:
   - id: ui-kit/sheet
     type: component
     applies_to: [web]
+    group: "Overlays"
     src: ui-kit/components/ui/sheet.tsx
     dest: "{ui}/sheet.tsx"
     requires: [ui-kit/base, ui-kit/button]
@@ -486,6 +536,7 @@ artifacts:
   - id: ui-kit/sidebar
     type: component
     applies_to: [web]
+    group: "Navigation"
     src: ui-kit/components/ui/sidebar.tsx
     dest: "{ui}/sidebar.tsx"
     requires: [ui-kit/base, ui-kit/button, ui-kit/input, ui-kit/separator, ui-kit/sheet, ui-kit/skeleton, ui-kit/tooltip, ui-kit/use-mobile]
@@ -497,6 +548,7 @@ artifacts:
   - id: ui-kit/skeleton
     type: component
     applies_to: [web]
+    group: "Feedback"
     src: ui-kit/components/ui/skeleton.tsx
     dest: "{ui}/skeleton.tsx"
     requires: [ui-kit/base]
@@ -504,6 +556,7 @@ artifacts:
   - id: ui-kit/slider
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/slider.tsx
     dest: "{ui}/slider.tsx"
     requires: [ui-kit/base]
@@ -513,6 +566,7 @@ artifacts:
   - id: ui-kit/sonnet
     type: component
     applies_to: [web]
+    group: "Feedback"
     src: ui-kit/components/ui/sonnet.tsx
     dest: "{ui}/sonnet.tsx"
     npm:
@@ -522,6 +576,7 @@ artifacts:
   - id: ui-kit/spinner
     type: component
     applies_to: [web]
+    group: "Feedback"
     src: ui-kit/components/ui/spinner.tsx
     dest: "{ui}/spinner.tsx"
     requires: [ui-kit/base]
@@ -531,6 +586,7 @@ artifacts:
   - id: ui-kit/steps
     type: component
     applies_to: [web]
+    group: "Navigation"
     src: ui-kit/components/ui/steps.tsx
     dest: "{ui}/steps.tsx"
     requires: [ui-kit/base]
@@ -540,6 +596,7 @@ artifacts:
   - id: ui-kit/switch
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/switch.tsx
     dest: "{ui}/switch.tsx"
     requires: [ui-kit/base]
@@ -549,6 +606,7 @@ artifacts:
   - id: ui-kit/table
     type: component
     applies_to: [web]
+    group: "Data display"
     src: ui-kit/components/ui/table.tsx
     dest: "{ui}/table.tsx"
     requires: [ui-kit/base]
@@ -556,6 +614,7 @@ artifacts:
   - id: ui-kit/tabs
     type: component
     applies_to: [web]
+    group: "Navigation"
     src: ui-kit/components/ui/tabs.tsx
     dest: "{ui}/tabs.tsx"
     requires: [ui-kit/base]
@@ -566,6 +625,7 @@ artifacts:
   - id: ui-kit/textarea
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/textarea.tsx
     dest: "{ui}/textarea.tsx"
     requires: [ui-kit/base]
@@ -573,6 +633,7 @@ artifacts:
   - id: ui-kit/toggle-group
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/toggle-group.tsx
     dest: "{ui}/toggle-group.tsx"
     requires: [ui-kit/base, ui-kit/toggle]
@@ -583,6 +644,7 @@ artifacts:
   - id: ui-kit/toggle
     type: component
     applies_to: [web]
+    group: "Forms & input"
     src: ui-kit/components/ui/toggle.tsx
     dest: "{ui}/toggle.tsx"
     requires: [ui-kit/base]
@@ -593,6 +655,7 @@ artifacts:
   - id: ui-kit/tooltip
     type: component
     applies_to: [web]
+    group: "Overlays"
     src: ui-kit/components/ui/tooltip.tsx
     dest: "{ui}/tooltip.tsx"
     requires: [ui-kit/base, ui-kit/portal-container]
@@ -602,6 +665,7 @@ artifacts:
   - id: ui-kit/data-table
     type: component
     applies_to: [web]
+    group: "Data display"
     src: ui-kit/components/data-table
     dest: "{ui}/data-table"
     requires: [ui-kit/badge, ui-kit/base, ui-kit/button, ui-kit/calendar, ui-kit/checkbox, ui-kit/command, ui-kit/dropdown-menu, ui-kit/empty, ui-kit/input, ui-kit/popover, ui-kit/separator, ui-kit/skeleton, ui-kit/switch, ui-kit/tooltip]

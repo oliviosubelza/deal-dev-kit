@@ -271,3 +271,23 @@ func ids(as []Artifact) []string {
 	}
 	return out
 }
+
+func TestGroupDefaultsToTheIDPrefix(t *testing.T) {
+	m, err := ParseManifest([]byte(`
+version: 1
+project_types: { web: { match: crm-deal-web } }
+artifacts:
+  - { id: web/ui, type: skill, src: a }
+  - { id: web/architecture, type: skill, src: b, group: "Web" }`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := m.Artifact("web/ui")
+	if a.Group != "web" {
+		t.Errorf("group = %q, want the ID prefix %q", a.Group, "web")
+	}
+	b, _ := m.Artifact("web/architecture")
+	if b.Group != "Web" {
+		t.Errorf("group = %q, want the declared %q", b.Group, "Web")
+	}
+}

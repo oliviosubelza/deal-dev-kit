@@ -2,9 +2,11 @@ package kit
 
 import (
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path"
+	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // rawManifest mirrors kit.yaml on disk. It is separate from Manifest so the
@@ -23,6 +25,7 @@ type rawProjectType struct {
 type rawArtifact struct {
 	ID        string            `yaml:"id"`
 	Type      string            `yaml:"type"`
+	Group     string            `yaml:"group"`
 	AppliesTo []string          `yaml:"applies_to"`
 	Src       string            `yaml:"src"`
 	Dest      string            `yaml:"dest"`
@@ -76,8 +79,13 @@ func ParseManifest(data []byte) (*Manifest, error) {
 			return nil, fmt.Errorf("kit.yaml: component %q has no dest", ra.ID)
 		}
 		a := Artifact{
-			ID: ra.ID, Type: ra.Type, Src: ra.Src, Dest: ra.Dest,
+			ID: ra.ID, Type: ra.Type, Group: ra.Group, Src: ra.Src, Dest: ra.Dest,
 			Requires: ra.Requires, NPM: ra.NPM,
+		}
+		if a.Group == "" {
+			// Fall back to the ID's first segment so an artifact always lands
+			// under some heading rather than silently disappearing.
+			a.Group = strings.SplitN(a.ID, "/", 2)[0]
 		}
 		for _, t := range ra.AppliesTo {
 			pt := ProjectType(t)

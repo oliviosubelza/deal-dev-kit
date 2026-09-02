@@ -1,10 +1,21 @@
-deal-kit  crm-deal-web · web · kit unpinned
-
-  plan:
-    create    src/shared/lib/utils.ts
-    create    src/shared/ui/button.tsx
-    create    .claude/skills/web-architecture/SKILL.md
-    create    .claude/skills/web-ui/SKILL.md
-    deps      clsx@^2.1.1 (pnpm)
-
-  y apply · esc back · q quit
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║   deal-kit dev  —  kit de desarrollo compartido CRM DEAL             ║
+║   crm-deal-web  ·  web  ·  kit sin fijar                             ║
+║                                                                      ║
+║   Revisar cambios                                                    ║
+║                                                                      ║
+║   Todo el proyecto  ·  2 nuevos                                      ║
+║                                                                      ║
+║   Componentes de UI  (2)                                             ║
+║     +  src/shared/lib/utils.ts                                       ║
+║     +  src/shared/ui/button.tsx                                      ║
+║                                                                      ║
+║                                                                      ║
+║   Dependencias npm   pnpm                                            ║
+║                                                                      ║
+║     clsx@^2.1.1                                                      ║
+║                                                                      ║
+║   y: aplicar  •  n: cancelar  •  esc: volver  •  q: salir            ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝

@@ -116,6 +116,56 @@ func send(t *testing.T, m Model, keys ...string) Model {
 	return model.(Model)
 }
 
+// onScreen puts the model on a screen the way the menu would, so tests start
+// where the user would be rather than at the menu every time.
+func onScreen(m Model, s screen) Model {
+	m.screen, m.returnTo = s, screenMenu
+	m.cursor, m.top = 0, 0
+	return m
+}
+
+// expandAll opens every group so item rows are reachable.
+func expandAll(m Model) Model {
+	m = onScreen(m, screenComponents)
+	for gi := range m.groups {
+		m.groups[gi].collapsed = false
+	}
+	return m
+}
+
+// cursorTo moves the cursor onto the row for an artifact, expanding groups.
+func cursorTo(t *testing.T, m Model, id string) Model {
+	t.Helper()
+	m = expandAll(m)
+	// Skills live on their own screen.
+	for _, it := range m.items {
+		if it.id == id && it.kind == "skill" {
+			m = onScreen(m, screenSkills)
+		}
+	}
+	for i, r := range m.rows() {
+		if !r.isHeading() && m.items[r.item].id == id {
+			m.cursor = i
+			return m
+		}
+	}
+	t.Fatalf("no row for %q", id)
+	return m
+}
+
+// cursorToGroup moves the cursor onto a group heading.
+func cursorToGroup(t *testing.T, m Model, name string) Model {
+	t.Helper()
+	for i, r := range m.rows() {
+		if r.isHeading() && m.groups[r.group].name == name {
+			m.cursor = i
+			return m
+		}
+	}
+	t.Fatalf("no heading for %q", name)
+	return m
+}
+
 func itemByID(m Model, id string) (item, bool) {
 	for _, it := range m.items {
 		if it.id == id {
@@ -155,23 +205,24 @@ func TestCatalogExcludesOtherProjectTypes(t *testing.T) {
 }
 
 func TestCursorStaysInBounds(t *testing.T) {
-	m := New(testConfig(t, nil))
+	m := expandAll(New(testConfig(t, nil)))
 
 	m = send(t, m, "up", "up", "up")
 	if m.cursor != 0 {
 		t.Errorf("cursor = %d after moving up from the top, want 0", m.cursor)
 	}
 
-	for i := 0; i < len(m.items)+5; i++ {
+	rows := len(m.rows())
+	for i := 0; i < rows+5; i++ {
 		m = send(t, m, "down")
 	}
-	if want := len(m.items) - 1; m.cursor != want {
+	if want := rows - 1; m.cursor != want {
 		t.Errorf("cursor = %d after moving past the end, want %d", m.cursor, want)
 	}
 }
 
 func TestToggleSelection(t *testing.T) {
-	m := New(testConfig(t, nil))
+	m := cursorTo(t, New(testConfig(t, nil)), "web/ui")
 	if m.countSelected() != 0 {
 		t.Fatalf("expected an empty selection, got %d", m.countSelected())
 	}
@@ -186,29 +237,127 @@ func TestToggleSelection(t *testing.T) {
 	}
 }
 
-func TestSelectAllAndNone(t *testing.T) {
-	m := New(testConfig(t, nil))
-
+func TestSelectAllAppliesToTheCurrentScreenOnly(t *testing.T) {
+	// "all" on the components screen must not silently change which team
+	// conventions the project follows.
+	m := expandAll(New(testConfig(t, nil)))
 	m = send(t, m, "a")
-	if m.countSelected() != len(m.items) {
-		t.Errorf("selected %d of %d after 'a'", m.countSelected(), len(m.items))
+
+	for _, it := range m.items {
+		if it.kind == "skill" && it.selected() {
+			t.Errorf("selecting all components also selected the skill %q", it.id)
+		}
+		if it.kind == "component" && !it.selected() {
+			t.Errorf("component %q was not selected", it.id)
+		}
 	}
+
 	m = send(t, m, "n")
-	if m.countSelected() != 0 {
-		t.Errorf("selected %d after 'n', want 0", m.countSelected())
+	if m.selectedHere() != 0 {
+		t.Errorf("%d still selected after 'n'", m.selectedHere())
+	}
+}
+
+func TestMenuNavigatesToAScreen(t *testing.T) {
+	m := New(testConfig(t, nil))
+	if m.screen != screenMenu {
+		t.Fatal("the browser must open on the menu")
+	}
+	m = send(t, m, "down", "enter") // second entry: skills
+	if m.screen != screenSkills {
+		t.Errorf("screen = %v, want screenSkills", m.screen)
+	}
+	m = send(t, m, "esc")
+	if m.screen != screenMenu {
+		t.Errorf("esc did not return to the menu")
+	}
+	m = send(t, m, "down", "enter")
+	if m.screen != screenComponents {
+		t.Errorf("screen = %v, want screenComponents", m.screen)
+	}
+}
+
+func TestInstallEverythingSelectsAllAndGoesStraightToReview(t *testing.T) {
+	// The first menu entry is the one most people will use, so it must not
+	// require walking two screens and pressing "a" on each.
+	m := send(t, New(testConfig(t, nil)), "enter")
+
+	if m.screen != screenPlan {
+		t.Fatalf("screen = %v, want screenPlan (err: %v)", m.screen, m.err)
+	}
+	for _, it := range m.items {
+		if !it.selected() {
+			t.Errorf("%q was left out of \"install everything\"", it.id)
+		}
+	}
+	if len(m.plan.Changes()) == 0 {
+		t.Error("the plan is empty for a project with nothing installed")
+	}
+}
+
+func TestDependencyLabelNamesWhatPullsItIn(t *testing.T) {
+	m := cursorTo(t, New(testConfig(t, nil)), "ui-kit/button")
+	m = send(t, m, " ")
+
+	base, _ := itemByID(m, "ui-kit/base")
+	if !base.required {
+		t.Fatal("ui-kit/base should be required by ui-kit/button")
+	}
+	if len(base.pulledBy) != 1 || base.pulledBy[0] != "ui-kit/button" {
+		t.Errorf("pulledBy = %v, want [ui-kit/button]", base.pulledBy)
+	}
+	if got := pulledByLabel(base.pulledBy, 18); got != "← button" {
+		t.Errorf("label = %q, want %q", got, "← button")
+	}
+}
+
+func TestDependencyLabelWithSeveralSources(t *testing.T) {
+	tests := []struct {
+		name  string
+		by    []string
+		width int
+		want  string
+	}{
+		{"one", []string{"ui-kit/button"}, 18, "← button"},
+		{"two", []string{"ui-kit/button", "ui-kit/card"}, 18, "← button +1"},
+		{"too narrow to name", []string{"ui-kit/dropdown-menu", "ui-kit/card"}, 12, "← 2 que lo usan"},
+		{"none", nil, 18, "requerido"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := pulledByLabel(tt.by, tt.width); got != tt.want {
+				t.Errorf("pulledByLabel(%v) = %q, want %q", tt.by, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSkillsAndComponentsAreSeparateLists(t *testing.T) {
+	m := onScreen(New(testConfig(t, nil)), screenSkills)
+	for _, r := range m.rows() {
+		if r.isHeading() {
+			t.Error("the skills screen must be a flat list, not a tree")
+		}
+		if m.items[r.item].kind != "skill" {
+			t.Errorf("%q is a %s on the skills screen", m.items[r.item].id, m.items[r.item].kind)
+		}
+	}
+
+	m = expandAll(m)
+	for _, r := range m.rows() {
+		if r.isHeading() {
+			continue
+		}
+		if m.items[r.item].kind != "component" {
+			t.Errorf("%q is a %s on the components screen", m.items[r.item].id, m.items[r.item].kind)
+		}
 	}
 }
 
 func TestSelectingAComponentMarksItsDependenciesRequired(t *testing.T) {
 	m := New(testConfig(t, nil))
 
-	// Move to ui-kit/button and select it; ui-kit/base is its dependency.
-	for i, it := range m.items {
-		if it.id == "ui-kit/button" {
-			m.cursor = i
-			break
-		}
-	}
+	m = cursorTo(t, m, "ui-kit/button")
 	m = send(t, m, " ")
 
 	base, ok := itemByID(m, "ui-kit/base")
@@ -221,20 +370,11 @@ func TestSelectingAComponentMarksItsDependenciesRequired(t *testing.T) {
 }
 
 func TestARequiredDependencyStaysInThePlan(t *testing.T) {
-	m := New(testConfig(t, nil))
-	for i, it := range m.items {
-		if it.id == "ui-kit/button" {
-			m.cursor = i
-		}
-	}
+	m := cursorTo(t, New(testConfig(t, nil)), "ui-kit/button")
 	m = send(t, m, " ")
 
 	// Now try to turn off ui-kit/base, which button pulls in.
-	for i, it := range m.items {
-		if it.id == "ui-kit/base" {
-			m.cursor = i
-		}
-	}
+	m = cursorTo(t, m, "ui-kit/base")
 	m = send(t, m, " ")
 
 	base, _ := itemByID(m, "ui-kit/base")
@@ -244,12 +384,7 @@ func TestARequiredDependencyStaysInThePlan(t *testing.T) {
 }
 
 func TestDeselectingTheDependentReleasesTheDependency(t *testing.T) {
-	m := New(testConfig(t, nil))
-	for i, it := range m.items {
-		if it.id == "ui-kit/button" {
-			m.cursor = i
-		}
-	}
+	m := cursorTo(t, New(testConfig(t, nil)), "ui-kit/button")
 	m = send(t, m, " ", " ") // select, then deselect
 
 	base, _ := itemByID(m, "ui-kit/base")
@@ -258,12 +393,12 @@ func TestDeselectingTheDependentReleasesTheDependency(t *testing.T) {
 	}
 }
 
-func TestEnterBuildsThePlanAndAdvances(t *testing.T) {
-	m := New(testConfig(t, nil))
-	m = send(t, m, "a", "enter")
+func TestPlanKeyBuildsThePlanAndAdvances(t *testing.T) {
+	m := expandAll(New(testConfig(t, nil)))
+	m = send(t, m, "a", "p")
 
-	if m.stage != stagePlan {
-		t.Fatalf("stage = %v, want stagePlan", m.stage)
+	if m.screen != screenPlan {
+		t.Fatalf("stage = %v, want screenPlan", m.screen)
 	}
 	if m.plan == nil {
 		t.Fatal("plan is nil")
@@ -274,11 +409,11 @@ func TestEnterBuildsThePlanAndAdvances(t *testing.T) {
 }
 
 func TestEscapeReturnsToSelection(t *testing.T) {
-	m := New(testConfig(t, nil))
-	m = send(t, m, "a", "enter", "esc")
+	m := expandAll(New(testConfig(t, nil)))
+	m = send(t, m, "a", "p", "esc")
 
-	if m.stage != stageSelect {
-		t.Errorf("stage = %v, want stageSelect", m.stage)
+	if m.screen != screenComponents {
+		t.Errorf("stage = %v, want screenComponents", m.screen)
 	}
 	if m.plan != nil {
 		t.Error("the stale plan must be discarded when going back")
@@ -287,10 +422,12 @@ func TestEscapeReturnsToSelection(t *testing.T) {
 
 func TestApplyWritesTheFilesAndTheLockfile(t *testing.T) {
 	cfg := testConfig(t, nil)
-	m := send(t, New(cfg), "a", "enter", "y")
+	// Select on both screens: "all" is deliberately per-screen.
+	m := send(t, onScreen(New(cfg), screenSkills), "a")
+	m = send(t, expandAll(m), "a", "p", "y")
 
-	if m.stage != stageApplied {
-		t.Fatalf("stage = %v (err: %v), want stageApplied", m.stage, m.err)
+	if m.screen != screenApplied {
+		t.Fatalf("stage = %v (err: %v), want screenApplied", m.screen, m.err)
 	}
 	applied, deps := m.Result()
 	if !applied {
@@ -322,13 +459,13 @@ func TestPlanStageRefusesToApplyWhenBlocked(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := send(t, New(cfg), "a", "enter")
+	m := send(t, expandAll(New(cfg)), "a", "p")
 	if len(m.plan.Blocked()) == 0 {
 		t.Fatal("expected a blocked action")
 	}
 
 	m = send(t, m, "y")
-	if m.stage == stageApplied {
+	if m.screen == screenApplied {
 		t.Error("apply must not run while something is blocked")
 	}
 	got, _ := os.ReadFile(dest)
@@ -341,9 +478,9 @@ func TestPlanErrorMovesToFailedStage(t *testing.T) {
 	cfg := testConfig(t, nil)
 	cfg.Roots = map[string]string{} // no roots: {src} cannot resolve
 
-	m := send(t, New(cfg), "a", "enter")
-	if m.stage != stageFailed {
-		t.Fatalf("stage = %v, want stageFailed", m.stage)
+	m := send(t, expandAll(New(cfg)), "a", "p")
+	if m.screen != screenFailed {
+		t.Fatalf("stage = %v, want screenFailed", m.screen)
 	}
 	if m.Err() == nil {
 		t.Error("Err() is nil on a failed plan")
@@ -351,8 +488,8 @@ func TestPlanErrorMovesToFailedStage(t *testing.T) {
 }
 
 func TestQuitFromAnyStage(t *testing.T) {
-	for _, keys := range [][]string{{"q"}, {"a", "enter", "q"}} {
-		m := send(t, New(testConfig(t, nil)), keys...)
+	for _, keys := range [][]string{{"q"}, {"a", "p", "q"}} {
+		m := send(t, expandAll(New(testConfig(t, nil))), keys...)
 		if !m.quitting {
 			t.Errorf("keys %v did not quit", keys)
 		}
@@ -386,17 +523,99 @@ func assertGolden(t *testing.T, name, got string) {
 }
 
 func TestViewSelectStage(t *testing.T) {
-	m := New(testConfig(t, nil))
-	for i, it := range m.items {
-		if it.id == "ui-kit/button" {
-			m.cursor = i
-		}
-	}
+	m := cursorTo(t, New(testConfig(t, nil)), "ui-kit/button")
 	m = send(t, m, " ")
 	assertGolden(t, "select", m.View())
 }
 
+func TestViewMenu(t *testing.T) {
+	// The browser opens on a menu, so skills and components are never mixed
+	// into one list the user cannot interpret.
+	assertGolden(t, "menu", New(testConfig(t, nil)).View())
+}
+
+func TestTabFoldsAndUnfolds(t *testing.T) {
+	m := expandAll(New(testConfig(t, nil)))
+	for gi := range m.groups {
+		m.groups[gi].collapsed = true
+	}
+	if !m.groups[0].collapsed {
+		t.Fatal("a fresh project should open folded")
+	}
+	m = send(t, m, "tab")
+	if m.groups[0].collapsed {
+		t.Error("tab did not unfold")
+	}
+	m = send(t, m, "tab")
+	if !m.groups[0].collapsed {
+		t.Error("tab did not fold again")
+	}
+}
+
+func TestGroupHeadingTogglesEveryItem(t *testing.T) {
+	m := cursorToGroup(t, expandAll(New(testConfig(t, nil))), "ui-kit")
+	m = send(t, m, " ")
+
+	g := m.groups[m.rows()[m.cursor].group]
+	if got := m.groupState(g); got != checked {
+		t.Errorf("group state = %v, want checked after toggling the heading", got)
+	}
+	m = send(t, m, " ")
+	if got := m.groupState(m.groups[0]); got != unchecked {
+		t.Errorf("group state = %v, want unchecked after toggling again", got)
+	}
+}
+
+func TestGroupShowsPartialState(t *testing.T) {
+	m := cursorTo(t, New(testConfig(t, nil)), "ui-kit/base")
+	m = send(t, m, " ")
+
+	for _, g := range m.groups {
+		if g.name != "ui-kit" {
+			continue
+		}
+		if got := m.groupState(g); got != partial {
+			t.Errorf("group state = %v, want partial with one of two selected", got)
+		}
+	}
+}
+
+func TestFilterHidesNonMatchingGroups(t *testing.T) {
+	m := send(t, expandAll(New(testConfig(t, nil))), "/", "b", "u", "t")
+
+	for _, r := range m.rows() {
+		if r.isHeading() {
+			continue
+		}
+		if id := m.items[r.item].id; id != "ui-kit/button" {
+			t.Errorf("filter %q left %q visible", m.filter, id)
+		}
+	}
+	// Escaping restores the full tree.
+	m = send(t, m, "esc")
+	if m.filter != "" {
+		t.Error("esc did not clear the filter")
+	}
+}
+
+func TestFilterTypingDoesNotTriggerCommands(t *testing.T) {
+	// "a" means select-all outside the filter, and a literal "a" inside it.
+	m := send(t, expandAll(New(testConfig(t, nil))), "/", "a")
+	if m.countSelected() != 0 {
+		t.Errorf("typing in the filter selected %d items", m.countSelected())
+	}
+	if m.filter != "a" {
+		t.Errorf("filter = %q, want %q", m.filter, "a")
+	}
+}
+
+func TestViewFilter(t *testing.T) {
+	m := New(testConfig(t, nil))
+	m = send(t, m, "/", "b", "u", "t")
+	assertGolden(t, "filter", m.View())
+}
+
 func TestViewPlanStage(t *testing.T) {
-	m := send(t, New(testConfig(t, nil)), "a", "enter")
+	m := send(t, expandAll(New(testConfig(t, nil))), "a", "p")
 	assertGolden(t, "plan", m.View())
 }

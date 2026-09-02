@@ -18,6 +18,7 @@ const (
 type Artifact struct {
 	ID        string            // "web/ui", "ui-kit/data-table"
 	Type      string            // "skill" | "component" | "config"
+	Group     string            // display grouping in the browser
 	AppliesTo []ProjectType     // project types this artifact is valid for
 	Src       string            // path inside the kit repo
 	Dest      string            // destination template, e.g. "{ui}/data-table"

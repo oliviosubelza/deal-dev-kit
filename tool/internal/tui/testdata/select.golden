@@ -1,9 +1,32 @@
-deal-kit  crm-deal-web · web · kit unpinned
-
-  [x] ui-kit/base              component  (required)
-› [x] ui-kit/button            component
-  [ ] web/architecture         skill
-  [ ] web/ui                   skill
-
-  2 selected
-  ↑↓ move · space toggle · a all · n none · enter plan · q quit
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║   deal-kit dev  —  kit de desarrollo compartido CRM DEAL             ║
+║   crm-deal-web  ·  web  ·  kit sin fijar                             ║
+║                                                                      ║
+║   Componentes de UI                                                  ║
+║                                                                      ║
+║   Se copian como código fuente en src/shared/ui.                     ║
+║   Las dependencias entre componentes se agregan solas.               ║
+║                                                                      ║
+║      [x] ▾  ui-kit                                             2/2   ║
+║        [x] base                                 ← button             ║
+║    ▸   [x] button                                                    ║
+║                                                                      ║
+║                                                                      ║
+║                                                                      ║
+║                                                                      ║
+║                                                                      ║
+║                                                                      ║
+║                                                                      ║
+║                                                                      ║
+║                                                                      ║
+║                                                                      ║
+║                                                                      ║
+║                                                                      ║
+║   2 elegidos en esta pantalla                                        ║
+║   ↑/↓: mover  •  espacio: marcar  •  ←/→: plegar  •  tab: plegar     ║
+║   todo                                                               ║
+║   a: todos  •  n: ninguno  •  /: filtrar  •  enter: revisar  •       ║
+║   esc: volver                                                        ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝

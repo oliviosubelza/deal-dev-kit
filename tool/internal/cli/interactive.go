@@ -55,6 +55,8 @@ func Interactive(e Env, typeOverride string) error {
 		ProjectRoot: root,
 		KitDir:      ck.Dir,
 		KitVersion:  ck.Version,
+		PinnedKit:   lock.KitVersion,
+		CLIVersion:  e.Version,
 		Manifest:    m,
 		Lock:        lock,
 		Roots:       roots,

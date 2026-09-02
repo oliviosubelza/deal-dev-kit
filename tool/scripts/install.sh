@@ -10,10 +10,10 @@
 
 set -eu
 
-REPO="deal/deal-dev-kit"
+REPO="oliviosubelza/deal-dev-kit"
 VERSION="${DEAL_KIT_VERSION:-latest}"
 BIN_DIR="${DEAL_KIT_BIN_DIR:-$HOME/.local/bin}"
-KIT_REPO="${DEAL_KIT_REPO:-git@github.com:deal/deal-dev-kit.git}"
+KIT_REPO="${DEAL_KIT_REPO:-git@github.com:oliviosubelza/deal-dev-kit.git}"
 
 die() { echo "install: $*" >&2; exit 1; }
 

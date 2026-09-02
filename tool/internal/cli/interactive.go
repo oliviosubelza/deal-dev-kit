@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/deal/deal-dev-kit/tool/internal/kit"
-	"github.com/deal/deal-dev-kit/tool/internal/lockfile"
-	"github.com/deal/deal-dev-kit/tool/internal/pm"
-	"github.com/deal/deal-dev-kit/tool/internal/tui"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/lockfile"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/pm"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/tui"
 )
 
 // Interactive opens the artifact browser. Discovery happens here so the TUI
@@ -23,7 +23,11 @@ func Interactive(e Env, typeOverride string) error {
 	if !tui.IsTerminal(e.Stdout) {
 		return fmt.Errorf("not a terminal: use `deal-kit init`, `add` or `status` with --yes for non-interactive use")
 	}
-	m, err := kit.LoadManifest(e.KitDir)
+	ck, err := e.kit()
+	if err != nil {
+		return err
+	}
+	m, err := kit.LoadManifest(ck.Dir)
 	if err != nil {
 		return fmt.Errorf("reading the kit: %w", err)
 	}
@@ -49,8 +53,8 @@ func Interactive(e Env, typeOverride string) error {
 		ProjectName: filepath.Base(root),
 		ProjectType: pt,
 		ProjectRoot: root,
-		KitDir:      e.KitDir,
-		KitVersion:  lock.KitVersion,
+		KitDir:      ck.Dir,
+		KitVersion:  ck.Version,
 		Manifest:    m,
 		Lock:        lock,
 		Roots:       roots,

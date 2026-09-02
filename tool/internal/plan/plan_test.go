@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/deal/deal-dev-kit/tool/internal/kit"
-	"github.com/deal/deal-dev-kit/tool/internal/lockfile"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/lockfile"
 )
 
 // fixture builds a kit checkout and an empty project, and returns their paths.

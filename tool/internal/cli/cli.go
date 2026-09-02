@@ -13,10 +13,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/deal/deal-dev-kit/tool/internal/kit"
-	"github.com/deal/deal-dev-kit/tool/internal/lockfile"
-	"github.com/deal/deal-dev-kit/tool/internal/plan"
-	"github.com/deal/deal-dev-kit/tool/internal/pm"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/lockfile"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/pm"
 )
 
 // Env is the environment a command runs in.
@@ -26,8 +26,14 @@ type Env struct {
 	Stdin  io.Reader
 
 	Cwd     string // where the command was invoked
-	KitDir  string // a checkout of the kit repository
 	Version string // the CLI's own version
+
+	// Where the kit comes from. KitDir short-circuits the fetch and points at
+	// a local checkout, which is how the kit itself is developed.
+	KitDir  string
+	Repo    string
+	Ref     string
+	Offline bool
 
 	AssumeYes bool // --yes: apply without confirming
 	DryRun    bool // --dry-run: print the plan and stop
@@ -36,6 +42,15 @@ type Env struct {
 
 // ErrAborted is returned when the user declines to apply a plan.
 var ErrAborted = errors.New("aborted")
+
+// kit resolves the kit to work against, cloning or fetching unless a local
+// directory was given.
+func (e Env) kit() (kit.Checkout, error) {
+	if e.KitDir != "" {
+		return kit.Checkout{Dir: e.KitDir, Version: "local"}, nil
+	}
+	return kit.Fetch(kit.Source{Repo: e.Repo, Ref: e.Ref, Offline: e.Offline})
+}
 
 // ProjectRoot walks up from Cwd to the nearest directory that looks like a
 // project. Commands must never write relative to Cwd itself: a developer
@@ -71,7 +86,11 @@ func Init(e Env, typeOverride string) error {
 	if err != nil {
 		return err
 	}
-	m, err := kit.LoadManifest(e.KitDir)
+	ck, err := e.kit()
+	if err != nil {
+		return err
+	}
+	m, err := kit.LoadManifest(ck.Dir)
 	if err != nil {
 		return fmt.Errorf("reading the kit: %w", err)
 	}
@@ -102,12 +121,13 @@ func Init(e Env, typeOverride string) error {
 	}
 
 	fmt.Fprintf(e.Stdout, "  detected  %s  (%s)\n", pt, filepath.Base(root))
+	fmt.Fprintf(e.Stdout, "  kit       %s\n", ck.Version)
 	fmt.Fprintf(e.Stdout, "  roots     %s\n", formatRoots(roots))
 	fmt.Fprintf(e.Stdout, "  profile   %s\n\n", pt)
 
 	lock.ProjectType = string(pt)
 	lock.Roots = roots
-	return syncArtifacts(e, root, m, lock, pt, ids)
+	return syncArtifacts(e, root, ck, m, lock, pt, ids)
 }
 
 // Add installs additional artifacts into an initialised project.
@@ -119,7 +139,11 @@ func Add(e Env, ids []string) error {
 	if err != nil {
 		return err
 	}
-	m, err := kit.LoadManifest(e.KitDir)
+	ck, err := e.kit()
+	if err != nil {
+		return err
+	}
+	m, err := kit.LoadManifest(ck.Dir)
 	if err != nil {
 		return fmt.Errorf("reading the kit: %w", err)
 	}
@@ -139,7 +163,7 @@ func Add(e Env, ids []string) error {
 	for _, a := range lock.Artifacts {
 		want = appendUnique(want, a.ID)
 	}
-	return syncArtifacts(e, root, m, lock, pt, want)
+	return syncArtifacts(e, root, ck, m, lock, pt, want)
 }
 
 // Status reports what is installed and whether it has drifted.
@@ -157,7 +181,11 @@ func Status(e Env) error {
 			lockfile.Name, filepath.Base(root))
 		return nil
 	}
-	m, err := kit.LoadManifest(e.KitDir)
+	ck, err := e.kit()
+	if err != nil {
+		return err
+	}
+	m, err := kit.LoadManifest(ck.Dir)
 	if err != nil {
 		return fmt.Errorf("reading the kit: %w", err)
 	}
@@ -169,11 +197,15 @@ func Status(e Env) error {
 	}
 	sort.Strings(ids)
 
-	kitVersion := lock.KitVersion
-	if kitVersion == "" {
-		kitVersion = "(unpinned)"
+	pinned := lock.KitVersion
+	if pinned == "" {
+		pinned = "(unpinned)"
 	}
-	fmt.Fprintf(e.Stdout, "  kit       %s\n  type      %s\n\n", kitVersion, pt)
+	fmt.Fprintf(e.Stdout, "  kit       %s\n  type      %s\n", pinned, pt)
+	if ck.Version != pinned && ck.Version != "local" {
+		fmt.Fprintf(e.Stdout, "  available %s  (run `deal-kit update`)\n", ck.Version)
+	}
+	fmt.Fprintln(e.Stdout)
 
 	artifacts, err := m.Resolve(pt, ids)
 	if err != nil {
@@ -181,7 +213,7 @@ func Status(e Env) error {
 	}
 	p, err := plan.Build(plan.Input{
 		Artifacts: artifacts, Lock: lock,
-		KitDir: e.KitDir, ProjectDir: root, Roots: lock.Roots,
+		KitDir: ck.Dir, ProjectDir: root, Roots: lock.Roots,
 		Rewrites: m.Rewrites(pt),
 	})
 	if err != nil {
@@ -194,14 +226,14 @@ func Status(e Env) error {
 // syncArtifacts resolves, plans, confirms and applies. Every command that
 // changes the project goes through here, so the TUI and the flags can never
 // diverge in what they actually do.
-func syncArtifacts(e Env, root string, m *kit.Manifest, lock *lockfile.File, pt kit.ProjectType, ids []string) error {
+func syncArtifacts(e Env, root string, ck kit.Checkout, m *kit.Manifest, lock *lockfile.File, pt kit.ProjectType, ids []string) error {
 	artifacts, err := m.Resolve(pt, ids)
 	if err != nil {
 		return err
 	}
 	p, err := plan.Build(plan.Input{
 		Artifacts: artifacts, Lock: lock,
-		KitDir: e.KitDir, ProjectDir: root, Roots: lock.Roots,
+		KitDir: ck.Dir, ProjectDir: root, Roots: lock.Roots,
 		Rewrites: m.Rewrites(pt),
 	})
 	if err != nil {
@@ -215,6 +247,15 @@ func syncArtifacts(e Env, root string, m *kit.Manifest, lock *lockfile.File, pt 
 		return fmt.Errorf("%d file(s) need attention before anything is written; resolve them and run again", len(blocked))
 	}
 	if len(p.Changes()) == 0 {
+		// The pin can still move even when no file changes.
+		if lock.KitVersion != ck.Version && ck.Version != "local" {
+			lock.KitVersion = ck.Version
+			if err := lock.Save(root); err != nil {
+				return err
+			}
+			fmt.Fprintf(e.Stdout, "\n  already up to date (pinned to %s)\n", ck.Version)
+			return nil
+		}
 		fmt.Fprintln(e.Stdout, "\n  already up to date")
 		return nil
 	}
@@ -234,6 +275,9 @@ func syncArtifacts(e Env, root string, m *kit.Manifest, lock *lockfile.File, pt 
 
 	if err := p.Apply(root, lock); err != nil {
 		return err
+	}
+	if ck.Version != "local" {
+		lock.KitVersion = ck.Version
 	}
 	if err := lock.Save(root); err != nil {
 		return err

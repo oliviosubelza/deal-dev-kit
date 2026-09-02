@@ -54,6 +54,7 @@ var commands = map[string]bool{
 	"browse": true,
 	"init":   true,
 	"add":    true,
+	"update": true,
 	"status": true,
 }
 

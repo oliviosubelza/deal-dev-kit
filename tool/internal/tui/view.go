@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/deal/deal-dev-kit/tool/internal/plan"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
 )
 
 // Styles use adaptive colours so the output stays legible on both light and

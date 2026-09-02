@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/deal/deal-dev-kit/tool/internal/kit"
-	"github.com/deal/deal-dev-kit/tool/internal/plan"
-	"github.com/deal/deal-dev-kit/tool/internal/pm"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/pm"
 )
 
 // renderPlan prints what a sync would do, in the order it would do it.

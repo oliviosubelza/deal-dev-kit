@@ -9,8 +9,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/deal/deal-dev-kit/tool/internal/kit"
-	"github.com/deal/deal-dev-kit/tool/internal/lockfile"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/lockfile"
 )
 
 var update = flag.Bool("update", false, "update golden files")

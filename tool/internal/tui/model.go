@@ -8,9 +8,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/deal/deal-dev-kit/tool/internal/kit"
-	"github.com/deal/deal-dev-kit/tool/internal/lockfile"
-	"github.com/deal/deal-dev-kit/tool/internal/plan"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/lockfile"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
 )
 
 // stage is which screen the user is on.

@@ -7,7 +7,7 @@ project.
 ## Install the CLI
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/deal/deal-dev-kit/main/tool/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/oliviosubelza/deal-dev-kit/main/tool/scripts/install.sh | sh
 ```
 
 No Go toolchain required: the script downloads a prebuilt static binary for your

@@ -1,4 +1,4 @@
-module github.com/deal/deal-dev-kit/tool
+module github.com/oliviosubelza/deal-dev-kit/tool
 
 go 1.24.2
 

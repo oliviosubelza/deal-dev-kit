@@ -8,8 +8,17 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/deal/deal-dev-kit/tool/internal/cli"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/cli"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
 )
+
+// envOr returns the environment variable, or a fallback when it is unset.
+func envOr(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
+}
 
 // version is injected at build time via -ldflags.
 var version = "dev"
@@ -39,7 +48,10 @@ func run(args []string) error {
 	name, rest := extractCommand(args)
 	fs := flag.NewFlagSet("deal-kit "+name, flag.ContinueOnError)
 	var (
-		kitDir       = fs.String("kit-dir", os.Getenv("DEAL_KIT_DIR"), "path to a checkout of the kit repository")
+		kitDir       = fs.String("kit-dir", os.Getenv("DEAL_KIT_DIR"), "use a local kit checkout instead of fetching")
+		repo         = fs.String("repo", envOr("DEAL_KIT_REPO", kit.DefaultRepo), "kit repository to fetch from")
+		ref          = fs.String("ref", os.Getenv("DEAL_KIT_REF"), "kit tag, branch or SHA (default: newest kit-v* tag)")
+		offline      = fs.Bool("offline", false, "use the cached kit without contacting the remote")
 		typeOverride = fs.String("type", "", "force the project type instead of detecting it")
 		yes          = fs.Bool("yes", false, "apply without confirmation")
 		dryRun       = fs.Bool("dry-run", false, "print the plan and stop")
@@ -53,13 +65,10 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *kitDir == "" {
-		return errors.New("no kit directory: pass --kit-dir or set DEAL_KIT_DIR")
-	}
-
 	env := cli.Env{
 		Stdout: os.Stdout, Stderr: os.Stderr, Stdin: os.Stdin,
-		Cwd: cwd, KitDir: *kitDir, Version: version,
+		Cwd: cwd, Version: version,
+		KitDir: *kitDir, Repo: *repo, Ref: *ref, Offline: *offline,
 		AssumeYes: *yes, DryRun: *dryRun, NoDeps: *noDeps,
 	}
 
@@ -70,6 +79,8 @@ func run(args []string) error {
 		return cli.Init(env, *typeOverride)
 	case "add":
 		return cli.Add(env, fs.Args())
+	case "update":
+		return cli.Update(env)
 	case "status":
 		return cli.Status(env)
 	default:
@@ -88,10 +99,14 @@ Commands:
   (none)       Open the interactive browser
   init         Set up this project: detect its type and install its profile
   add <id>...  Install additional artifacts
+  update       Move the kit pin forward and re-sync
   status       Show what is installed, and whether it has drifted
 
 Flags:
-  --kit-dir    Path to a kit checkout (or set DEAL_KIT_DIR)
+  --repo       Kit repository (or set DEAL_KIT_REPO)
+  --ref        Kit tag, branch or SHA (or set DEAL_KIT_REF)
+  --offline    Use the cached kit without contacting the remote
+  --kit-dir    Use a local kit checkout instead of fetching (or DEAL_KIT_DIR)
   --type       Force the project type instead of detecting it
   --dry-run    Print the plan without writing anything
   --yes        Apply without confirmation

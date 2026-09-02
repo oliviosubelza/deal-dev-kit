@@ -1,0 +1,10 @@
+deal-kit  crm-deal-web · web · kit unpinned
+
+  plan:
+    create    src/shared/lib/utils.ts
+    create    src/shared/ui/button.tsx
+    create    .claude/skills/web-architecture/SKILL.md
+    create    .claude/skills/web-ui/SKILL.md
+    deps      clsx@^2.1.1 (pnpm)
+
+  y apply · esc back · q quit

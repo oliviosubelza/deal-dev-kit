@@ -1,0 +1,615 @@
+# Manifest of everything deal-kit can install.
+#
+# Artifact IDs are hierarchical for organisation inside this repository.
+# Skills are FLATTENED on install, because agents discover skills in a flat
+# namespace (.claude/skills/<name>/SKILL.md): `web/ui` is written as `web-ui`,
+# which must match the `name` in its SKILL.md frontmatter.
+#
+# Destinations resolve against the CRM DEAL folder structure. `deal-kit init`
+# detects the project type and records the roots in deal-kit.lock.
+
+version: 1
+
+# CRM DEAL is a polyrepo: one repository per project, three project types.
+project_types:
+  backend:
+    match: "crm-deal-*-service"   # NestJS, hexagonal
+    roots:
+      src: src
+      modules: src/modules
+  web:
+    match: "crm-deal-web"          # React + Vite, feature-based
+    roots:
+      src: src
+      ui: src/shared/ui            # design system (shadcn catalog)
+      hooks: src/shared/hooks
+      features: src/features
+  mobile:
+    match: "crm-deal-mobile"       # React Native + Expo, React Native Paper
+    roots:
+      src: src
+      features: src/features
+
+# The kit authors components against its own layout (@/components/ui, @/lib).
+# Projects put them somewhere else, so imports are rewritten on install.
+# Longest prefix wins, so a more specific rule can precede a general one.
+import_rewrites:
+  web:
+    "@/components/ui/": "@/shared/ui/"
+    "@/hooks/": "@/shared/hooks/"
+    "@/lib/": "@/shared/lib/"
+
+# What `deal-kit init` installs for each project type.
+profiles:
+  backend: [general/conventions, general/pr-workflow, backend/architecture, backend/connections]
+  web:     [general/conventions, general/pr-workflow, web/architecture, web/ui, ui-kit/base, ui-kit/theme]
+  mobile:  [general/conventions, general/pr-workflow, mobile/architecture, mobile/offline]
+
+artifacts:
+  # ---- skills ----
+  - { id: general/conventions,  type: skill, applies_to: [backend, web, mobile], src: skills/general/conventions }
+  - { id: general/pr-workflow,  type: skill, applies_to: [backend, web, mobile], src: skills/general/pr-workflow }
+  - { id: backend/architecture, type: skill, applies_to: [backend], src: skills/backend/architecture }
+  - { id: backend/connections,  type: skill, applies_to: [backend], src: skills/backend/connections }
+  - { id: web/architecture,     type: skill, applies_to: [web],     src: skills/web/architecture }
+  - { id: web/ui,               type: skill, applies_to: [web],     src: skills/web/ui }
+  - { id: mobile/architecture,  type: skill, applies_to: [mobile],  src: skills/mobile/architecture }
+  - { id: mobile/offline,       type: skill, applies_to: [mobile],  src: skills/mobile/offline }
+
+  # ---- ui-kit (web only: mobile uses React Native Paper) ----
+  # Generated from the components' own imports: `requires` mirrors
+  # `@/components/ui/...` imports, `npm` mirrors external ones.
+
+  - id: ui-kit/base
+    type: component
+    applies_to: [web]
+    src: ui-kit/lib
+    dest: "{src}/shared/lib"
+    npm:
+      clsx: "^2.1.1"
+      tailwind-merge: "^3.5.0"
+
+  - id: ui-kit/use-mobile
+    type: component
+    applies_to: [web]
+    src: ui-kit/hooks/use-mobile.ts
+    dest: "{hooks}/use-mobile.ts"
+
+  - id: ui-kit/theme
+    type: component
+    applies_to: [web]
+    src: ui-kit/theme.css
+    dest: "{src}/theme.css"
+
+  - id: ui-kit/accordion
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/accordion.tsx
+    dest: "{ui}/accordion.tsx"
+    requires: [ui-kit/base]
+    npm:
+      lucide-react: "^1.8.0"
+      radix-ui: "^1.4.3"
+
+  - id: ui-kit/alert-dialog
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/alert-dialog.tsx
+    dest: "{ui}/alert-dialog.tsx"
+    requires: [ui-kit/base, ui-kit/button, ui-kit/portal-container]
+    npm:
+      radix-ui: "^1.4.3"
+
+  - id: ui-kit/alert
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/alert.tsx
+    dest: "{ui}/alert.tsx"
+    requires: [ui-kit/base]
+    npm:
+      class-variance-authority: "^0.7.1"
+
+  - id: ui-kit/aspect-ratio
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/aspect-ratio.tsx
+    dest: "{ui}/aspect-ratio.tsx"
+    npm:
+      radix-ui: "^1.4.3"
+
+  - id: ui-kit/avatar
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/avatar.tsx
+    dest: "{ui}/avatar.tsx"
+    requires: [ui-kit/base]
+    npm:
+      radix-ui: "^1.4.3"
+
+  - id: ui-kit/badge
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/badge.tsx
+    dest: "{ui}/badge.tsx"
+    requires: [ui-kit/base]
+    npm:
+      class-variance-authority: "^0.7.1"
+      radix-ui: "^1.4.3"
+
+  - id: ui-kit/breadcrumb
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/breadcrumb.tsx
+    dest: "{ui}/breadcrumb.tsx"
+    requires: [ui-kit/base]
+    npm:
+      lucide-react: "^1.8.0"
+      radix-ui: "^1.4.3"
+
+  - id: ui-kit/button-group
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/button-group.tsx
+    dest: "{ui}/button-group.tsx"
+    requires: [ui-kit/base, ui-kit/separator]
+    npm:
+      class-variance-authority: "^0.7.1"
+      radix-ui: "^1.4.3"
+
+  - id: ui-kit/button
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/button.tsx
+    dest: "{ui}/button.tsx"
+    requires: [ui-kit/base]
+    npm:
+      class-variance-authority: "^0.7.1"
+      radix-ui: "^1.4.3"
+
+  - id: ui-kit/calendar
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/calendar.tsx
+    dest: "{ui}/calendar.tsx"
+    requires: [ui-kit/base, ui-kit/button]
+    npm:
+      lucide-react: "^1.8.0"
+      react-day-picker: "^9.14.0"
+
+  - id: ui-kit/card
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/card.tsx
+    dest: "{ui}/card.tsx"
+    requires: [ui-kit/base]
+
+  - id: ui-kit/carousel
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/carousel.tsx
+    dest: "{ui}/carousel.tsx"
+    requires: [ui-kit/base, ui-kit/button]
+    npm:
+      embla-carousel-react: "^8.6.0"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/chart
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/chart.tsx
+    dest: "{ui}/chart.tsx"
+    requires: [ui-kit/base]
+    npm:
+      recharts: "^3.8.1"
+
+  - id: ui-kit/checkbox
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/checkbox.tsx
+    dest: "{ui}/checkbox.tsx"
+    requires: [ui-kit/base]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/collapsible
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/collapsible.tsx
+    dest: "{ui}/collapsible.tsx"
+    npm:
+      "@base-ui/react": "^1.4.1"
+
+  - id: ui-kit/combobox
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/combobox.tsx
+    dest: "{ui}/combobox.tsx"
+    requires: [ui-kit/base, ui-kit/button, ui-kit/input-group]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/command
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/command.tsx
+    dest: "{ui}/command.tsx"
+    requires: [ui-kit/base, ui-kit/dialog, ui-kit/input-group]
+    npm:
+      cmdk: "^1.1.1"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/context-menu
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/context-menu.tsx
+    dest: "{ui}/context-menu.tsx"
+    requires: [ui-kit/base, ui-kit/portal-container]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/dialog
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/dialog.tsx
+    dest: "{ui}/dialog.tsx"
+    requires: [ui-kit/base, ui-kit/button, ui-kit/portal-container]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/direction
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/direction.tsx
+    dest: "{ui}/direction.tsx"
+
+  - id: ui-kit/drawer
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/drawer.tsx
+    dest: "{ui}/drawer.tsx"
+    requires: [ui-kit/base]
+    npm:
+      vaul: "^1.1.2"
+
+  - id: ui-kit/dropdown-menu
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/dropdown-menu.tsx
+    dest: "{ui}/dropdown-menu.tsx"
+    requires: [ui-kit/base, ui-kit/portal-container]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/empty
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/empty.tsx
+    dest: "{ui}/empty.tsx"
+    requires: [ui-kit/base]
+    npm:
+      class-variance-authority: "^0.7.1"
+
+  - id: ui-kit/field
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/field.tsx
+    dest: "{ui}/field.tsx"
+    requires: [ui-kit/base, ui-kit/label, ui-kit/separator]
+    npm:
+      class-variance-authority: "^0.7.1"
+
+  - id: ui-kit/hover-card
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/hover-card.tsx
+    dest: "{ui}/hover-card.tsx"
+    requires: [ui-kit/base, ui-kit/portal-container]
+    npm:
+      "@base-ui/react": "^1.4.1"
+
+  - id: ui-kit/input-group
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/input-group.tsx
+    dest: "{ui}/input-group.tsx"
+    requires: [ui-kit/base, ui-kit/button, ui-kit/input, ui-kit/textarea]
+    npm:
+      class-variance-authority: "^0.7.1"
+
+  - id: ui-kit/input-otp
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/input-otp.tsx
+    dest: "{ui}/input-otp.tsx"
+    requires: [ui-kit/base]
+    npm:
+      input-otp: "^1.4.2"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/input
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/input.tsx
+    dest: "{ui}/input.tsx"
+    requires: [ui-kit/base]
+    npm:
+      "@base-ui/react": "^1.4.1"
+
+  - id: ui-kit/item
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/item.tsx
+    dest: "{ui}/item.tsx"
+    requires: [ui-kit/base, ui-kit/separator]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      class-variance-authority: "^0.7.1"
+
+  - id: ui-kit/kbd
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/kbd.tsx
+    dest: "{ui}/kbd.tsx"
+    requires: [ui-kit/base]
+
+  - id: ui-kit/label
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/label.tsx
+    dest: "{ui}/label.tsx"
+    requires: [ui-kit/base]
+
+  - id: ui-kit/menubar
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/menubar.tsx
+    dest: "{ui}/menubar.tsx"
+    requires: [ui-kit/base, ui-kit/dropdown-menu]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/native-select
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/native-select.tsx
+    dest: "{ui}/native-select.tsx"
+    requires: [ui-kit/base]
+    npm:
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/navigation-menu
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/navigation-menu.tsx
+    dest: "{ui}/navigation-menu.tsx"
+    requires: [ui-kit/base]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      class-variance-authority: "^0.7.1"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/pagination
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/pagination.tsx
+    dest: "{ui}/pagination.tsx"
+    requires: [ui-kit/base, ui-kit/button]
+    npm:
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/popover
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/popover.tsx
+    dest: "{ui}/popover.tsx"
+    requires: [ui-kit/base, ui-kit/portal-container]
+    npm:
+      "@base-ui/react": "^1.4.1"
+
+  - id: ui-kit/portal-container
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/portal-container.tsx
+    dest: "{ui}/portal-container.tsx"
+
+  - id: ui-kit/progress
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/progress.tsx
+    dest: "{ui}/progress.tsx"
+    requires: [ui-kit/base]
+    npm:
+      "@base-ui/react": "^1.4.1"
+
+  - id: ui-kit/radio-group
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/radio-group.tsx
+    dest: "{ui}/radio-group.tsx"
+    requires: [ui-kit/base]
+    npm:
+      "@base-ui/react": "^1.4.1"
+
+  - id: ui-kit/resizable
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/resizable.tsx
+    dest: "{ui}/resizable.tsx"
+    requires: [ui-kit/base]
+    npm:
+      react-resizable-panels: "^4.10.0"
+
+  - id: ui-kit/scroll-area
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/scroll-area.tsx
+    dest: "{ui}/scroll-area.tsx"
+    requires: [ui-kit/base]
+    npm:
+      "@base-ui/react": "^1.4.1"
+
+  - id: ui-kit/select
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/select.tsx
+    dest: "{ui}/select.tsx"
+    requires: [ui-kit/base, ui-kit/portal-container]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/separator
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/separator.tsx
+    dest: "{ui}/separator.tsx"
+    requires: [ui-kit/base]
+    npm:
+      "@base-ui/react": "^1.4.1"
+
+  - id: ui-kit/sheet
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/sheet.tsx
+    dest: "{ui}/sheet.tsx"
+    requires: [ui-kit/base, ui-kit/button]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/sidebar
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/sidebar.tsx
+    dest: "{ui}/sidebar.tsx"
+    requires: [ui-kit/base, ui-kit/button, ui-kit/input, ui-kit/separator, ui-kit/sheet, ui-kit/skeleton, ui-kit/tooltip, ui-kit/use-mobile]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      class-variance-authority: "^0.7.1"
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/skeleton
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/skeleton.tsx
+    dest: "{ui}/skeleton.tsx"
+    requires: [ui-kit/base]
+
+  - id: ui-kit/slider
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/slider.tsx
+    dest: "{ui}/slider.tsx"
+    requires: [ui-kit/base]
+    npm:
+      "@base-ui/react": "^1.4.1"
+
+  - id: ui-kit/sonnet
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/sonnet.tsx
+    dest: "{ui}/sonnet.tsx"
+    npm:
+      lucide-react: "^1.8.0"
+      sonner: "^2.0.7"
+
+  - id: ui-kit/spinner
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/spinner.tsx
+    dest: "{ui}/spinner.tsx"
+    requires: [ui-kit/base]
+    npm:
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/steps
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/steps.tsx
+    dest: "{ui}/steps.tsx"
+    requires: [ui-kit/base]
+    npm:
+      lucide-react: "^1.8.0"
+
+  - id: ui-kit/switch
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/switch.tsx
+    dest: "{ui}/switch.tsx"
+    requires: [ui-kit/base]
+    npm:
+      "@base-ui/react": "^1.4.1"
+
+  - id: ui-kit/table
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/table.tsx
+    dest: "{ui}/table.tsx"
+    requires: [ui-kit/base]
+
+  - id: ui-kit/tabs
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/tabs.tsx
+    dest: "{ui}/tabs.tsx"
+    requires: [ui-kit/base]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      class-variance-authority: "^0.7.1"
+
+  - id: ui-kit/textarea
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/textarea.tsx
+    dest: "{ui}/textarea.tsx"
+    requires: [ui-kit/base]
+
+  - id: ui-kit/toggle-group
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/toggle-group.tsx
+    dest: "{ui}/toggle-group.tsx"
+    requires: [ui-kit/base, ui-kit/toggle]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      class-variance-authority: "^0.7.1"
+
+  - id: ui-kit/toggle
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/toggle.tsx
+    dest: "{ui}/toggle.tsx"
+    requires: [ui-kit/base]
+    npm:
+      "@base-ui/react": "^1.4.1"
+      class-variance-authority: "^0.7.1"
+
+  - id: ui-kit/tooltip
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/ui/tooltip.tsx
+    dest: "{ui}/tooltip.tsx"
+    requires: [ui-kit/base, ui-kit/portal-container]
+    npm:
+      "@base-ui/react": "^1.4.1"
+
+  - id: ui-kit/data-table
+    type: component
+    applies_to: [web]
+    src: ui-kit/components/data-table
+    dest: "{ui}/data-table"
+    requires: [ui-kit/badge, ui-kit/base, ui-kit/button, ui-kit/calendar, ui-kit/checkbox, ui-kit/command, ui-kit/dropdown-menu, ui-kit/empty, ui-kit/input, ui-kit/popover, ui-kit/separator, ui-kit/skeleton, ui-kit/switch, ui-kit/tooltip]
+    npm:
+      "@dnd-kit/core": "^6.3.1"
+      "@dnd-kit/modifiers": "^9.0.0"
+      "@dnd-kit/sortable": "^10.0.0"
+      "@dnd-kit/utilities": "^3.2.2"
+      "@tanstack/react-table": "^8.21.3"
+      lucide-react: "^1.8.0"
+      react-day-picker: "^9.14.0"

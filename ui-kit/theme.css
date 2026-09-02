@@ -1,0 +1,472 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/inter-tight";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Suppress transitions while the sidebar is being dragged */
+body[data-resizing] * {
+  transition: none !important;
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+    box-sizing: border-box;
+  }
+
+  html {
+    font-size: var(--app-font-size, 14px);
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  #root {
+    width: 100%;
+    height: 100%;
+  }
+
+  * {
+    font-family: var(--font-sans);
+  }
+
+  /* Headings con la display tipográfica (Inter Tight): títulos de vista, secciones y dashboard. */
+  h1, h2, h3 {
+    font-family: var(--font-display);
+  }
+
+  /* Leaflet en tema oscuro: los tiles de OSM son claros y quedan como una mancha blanca. Se
+     invierten y se rota el matiz para recuperar los colores (truco estándar).
+     El filtro va en el PANE, no en `.leaflet-tile`: leaflet.css declara `.leaflet-tile { filter:
+     inherit }` sin capa, y una regla sin capa le gana a cualquier `@layer base` nuestra — el filtro
+     puesto en el tile se perdía. Los marcadores viven en otro pane (overlay/marker), así que
+     conservan intacto su color de estado. */
+  .dark .leaflet-tile-pane {
+    filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9);
+  }
+
+  .dark .leaflet-container {
+    background: hsl(var(--muted));
+  }
+
+  /* Eliminar la transparencia de los tooltips de Leaflet (100% opacos) */
+  .leaflet-tooltip {
+    opacity: 1 !important;
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border: 1px solid rgba(0, 0, 0, 0.15) !important;
+    border-radius: 8px !important;
+    padding: 6px 10px !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25) !important;
+  }
+
+  .leaflet-tooltip-top:before,
+  .leaflet-tooltip-bottom:before,
+  .leaflet-tooltip-left:before,
+  .leaflet-tooltip-right:before {
+    opacity: 1 !important;
+  }
+
+  /* Etiqueta de detalle bajo los pines (tool "Ver detalles"): pill compacto y 100% opaco */
+  .leaflet-tooltip.stop-detail-tip {
+    padding: 2px 6px !important;
+    border: none !important;
+    border-radius: 6px !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3) !important;
+    white-space: nowrap !important;
+    opacity: 1 !important;
+  }
+  .leaflet-tooltip.stop-detail-tip::before {
+    display: none; /* saca la flechita del tooltip */
+  }
+
+  /* Nombre del mercado, apoyado en el centro de su polígono. Sin caja ni borde: es una etiqueta de
+     MAPA (como el nombre de un barrio), no un tooltip de un objeto. El halo blanco alrededor del texto
+     es lo que la hace legible tanto sobre el relleno del polígono como sobre el satélite, sin tener que
+     ponerle un fondo que taparía los pines de abajo. */
+  .leaflet-tooltip.mercado-etiqueta,
+  .leaflet-tooltip.zona-etiqueta {
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    color: #0f172a;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    text-shadow:
+      0 0 3px #fff,
+      0 0 3px #fff,
+      0 0 6px #fff;
+  }
+  .leaflet-tooltip.mercado-etiqueta::before,
+  .leaflet-tooltip.zona-etiqueta::before {
+    display: none; /* la flechita no tiene sentido en una etiqueta centrada */
+  }
+  /* En oscuro los tiles van invertidos pero los panes de vectores NO (ver el filtro de arriba): el halo
+     tiene que seguir siendo claro para separar el texto del relleno del polígono. */
+  .dark .leaflet-tooltip.mercado-etiqueta,
+  .dark .leaflet-tooltip.zona-etiqueta {
+    color: #0b1120;
+  }
+
+  /* Zona SELECCIONADA en el mapa de zonas: mismo mecanismo que el mercado seleccionado — el foco se
+     marca sobre la etiqueta que ya estaba, no con una segunda copia del nombre al lado. */
+  .leaflet-tooltip.zona-etiqueta.zona-etiqueta-sel {
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: rgb(255 255 255 / 0.92);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+    font-size: 11px;
+    text-shadow: none;
+  }
+
+  /* Etiqueta de HOLGURA del imantado: el número de metros que quedó entre el vértice y el borde vecino.
+     Existe porque un metro a los zooms de dibujo es 0,07 px — sin el número, "imantado con holgura" y
+     "imantado encima del borde" se ven idénticos y no hay forma de saber si la regla se cumplió. */
+  .leaflet-tooltip.snap-holgura {
+    padding: 0 4px;
+    border: none;
+    border-radius: 4px;
+    background: rgb(245 158 11 / 0.95);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+    color: #1c1204;
+    font-size: 10px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-shadow: none;
+    white-space: nowrap;
+  }
+  /* La holgura NO se logró: mismo lugar, mismo número, otro significado. */
+  .leaflet-tooltip.snap-holgura.snap-holgura-mal {
+    background: rgb(220 38 38 / 0.95);
+    color: #fff;
+  }
+  .leaflet-tooltip.snap-holgura::before {
+    display: none; /* la flechita compite con el círculo del indicador, que ya señala el punto */
+  }
+
+  /* Mercado SELECCIONADO (click en su polígono): la misma etiqueta, con más presencia. Es lo que
+     reemplaza al globo que antes repetía el nombre — el foco se marca sobre el texto que ya estaba, no
+     con una segunda copia del nombre al lado. */
+  .leaflet-tooltip.mercado-etiqueta.mercado-etiqueta-sel {
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: rgb(255 255 255 / 0.92);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+    font-size: 11px;
+    text-shadow: none;
+  }
+
+  /* Pin del mapa: leve escala al hover (foco) y un "pop" corto al quedar seleccionado. La animación
+     va en el div INTERNO, no en el wrapper de Leaflet (que usa transform para posicionar). */
+  .stop-pin {
+    transition: transform 120ms ease;
+    transform-origin: center;
+  }
+  .stop-pin:hover {
+    transform: scale(1.12);
+  }
+  .stop-pin-selected {
+    animation: stop-pin-pop 160ms ease-out;
+  }
+  @keyframes stop-pin-pop {
+    0% { transform: scale(0.85); }
+    60% { transform: scale(1.08); }
+    100% { transform: scale(1); }
+  }
+
+  /* Pulso del camión: ondas que salen del pin al ritmo del ping.
+     Va en CSS y no en el componente porque el marcador se serializa a HTML con
+     `renderToStaticMarkup`, y ahí un @keyframes inline no existe. El color y el período llegan por
+     custom properties desde el marcador, así el ritmo puede seguir a la cadencia real del reporte
+     (hoy 5 s en el mock; mañana 30 s o 1 min) sin tocar esta hoja.
+     Dos anillos con el segundo desfasado un tercio: uno solo se lee como un parpadeo, dos se leen
+     como una onda que se propaga. */
+  .truck-pulse {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    border: 2px solid var(--pulso-color, #2563eb);
+    opacity: 0;
+    pointer-events: none;
+    animation: truck-pulse var(--pulso-ms, 5000ms) cubic-bezier(0.15, 0.6, 0.35, 1) infinite;
+  }
+  .truck-pulse-2 {
+    animation-delay: calc(var(--pulso-ms, 5000ms) / 3);
+  }
+  @keyframes truck-pulse {
+    0% { transform: scale(1); opacity: 0.6; }
+    70% { transform: scale(2.8); opacity: 0; }
+    100% { transform: scale(2.8); opacity: 0; }
+  }
+
+  /* Trazo de una ruta al optimizar: la línea se DIBUJA desde el depósito en vez de aparecer entera.
+     Optimizar es la acción más cara de la planificación, y si su resultado se materializa de golpe no
+     queda claro qué cambió; viendo el trazo avanzar se lee "esto es un recorrido", no "esto es una
+     línea". Va en CSS porque Leaflet dibuja SVG y el `className` de la polilínea es el único enganche.
+
+     LAS UNIDADES SON RELATIVAS, no píxeles, y eso corrige un bug: antes el dasharray era 12000 —"un
+     número lo bastante grande"— y el problema es que la longitud del path en el SVG de Leaflet está en
+     PÍXELES DE PANTALLA, así que crece con el zoom. Una ruta de 50 km mide ~5.500 px a zoom 14 y
+     ~22.000 a zoom 16: pasado el tope, el dash terminaba antes que la línea y la cola quedaba
+     INVISIBLE. Con el ruteo por calles el recorrido es todavía más largo y el corte se veía siempre.
+
+     El arreglo es `pathLength="1"` en el elemento (lo pone `PlannerMapa` al montar la capa): declara
+     que el path mide 1, y a partir de ahí el dash se mide en fracciones del recorrido — 1 es "todo",
+     sin importar el zoom ni los kilómetros. Por eso la clase la agrega el mismo callback que pone el
+     atributo: si el elemento no estuviera, sin clase la línea se dibuja entera y sólida, mientras que
+     un `dasharray: 1` sin `pathLength` la haría desaparecer. Falla del lado seguro. */
+  .ruta-trazo {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: ruta-trazo 900ms ease-out forwards;
+  }
+  @keyframes ruta-trazo {
+    to { stroke-dashoffset: 0; }
+  }
+
+  /* ── El listado también tiene que verse VIVO ──────────────────────────────────────────────
+     Una pantalla de vigilancia que cambia sin avisar es peor que una quieta: el dato se actualiza
+     mientras mirás otra fila y nunca te enterás. Dos canales, la misma duración:
+
+     1. `.celda-viva` — destella la CELDA que cambió. Dice QUÉ cambió.
+     2. `.fila-viva`  — barra de acento a la izquierda de la fila. Se ve con visión periférica, que
+        es la que te hace girar la vista hacia la fila correcta.
+
+     1,2 s: alcanza para registrarlo sin que la tabla parezca un semáforo. */
+  .celda-viva {
+    animation: celda-viva 1200ms ease-out;
+    border-radius: 4px;
+  }
+  @keyframes celda-viva {
+    0% { background: hsl(var(--primary) / 0.22); }
+    100% { background: transparent; }
+  }
+
+  .fila-viva {
+    animation: fila-viva 1200ms ease-out;
+  }
+  @keyframes fila-viva {
+    0% { box-shadow: inset 3px 0 0 hsl(var(--primary)); background: hsl(var(--primary) / 0.07); }
+    100% { box-shadow: inset 3px 0 0 transparent; background: transparent; }
+  }
+
+  /* Punto que late en la columna "Última señal": el equivalente de tabla a las ondas del camión.
+     Corre siempre que la señal esté fresca, así la fila se lee viva aunque no haya cambiado nada. */
+  .senal-viva {
+    animation: senal-viva 2s ease-in-out infinite;
+  }
+  @keyframes senal-viva {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
+
+  /* Sin señal el pulso NO corre: un camión que dejó de reportar no puede verse igual de vivo que uno
+     que reporta. Es la misma información que el tooltip da en texto, pero visible sin hover. */
+  @media (prefers-reduced-motion: reduce) {
+    .truck-pulse,
+    .celda-viva,
+    .fila-viva,
+    .senal-viva,
+    .ruta-trazo {
+      animation: none;
+    }
+    /* Sin animación el trazo tiene que quedar SÓLIDO, no invisible: el `dashoffset` inicial lo dejaría
+       sin dibujar para siempre. */
+    .ruta-trazo {
+      stroke-dasharray: none;
+      stroke-dashoffset: 0;
+    }
+  }
+
+  /* Styled scrollbars — Chromium/Electron only */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 100px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  :root {
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 226 68% 46%;
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    /* Azul cobalto de marca (logística/distribución). Cambiar SOLO este par (y su gemelo en .dark)
+       repinta todo el producto: botones, chips de filtro, steps, cabeceras del sidebar.
+       Ojo al elegir otro: los colores de CANAL y de CAMIÓN del mapa (mock-data.ts) tienen que
+       quedar distinguibles de este, o el mapa se vuelve ilegible. */
+    --primary: 226 68% 46%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 226 68% 46%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 226 68% 46%;
+
+    --border-radius-base: 0.5rem;
+  }
+
+  .dark {
+    --border: 220 16% 22%;
+    --input: 220 16% 22%;
+    --ring: 222 90% 68%;
+    --background: 220 13% 16%;
+    --foreground: 0 0% 100%;
+    /* En oscuro el azul sube en luminosidad (el de :root no contrasta contra el fondo). */
+    --primary: 222 90% 68%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 13% 20%;
+    --secondary-foreground: 0 0% 100%;
+    --destructive: 0 72% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --muted: 220 13% 20%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 220 13% 22%;
+    --accent-foreground: 0 0% 100%;
+    --popover: 220 13% 16%;
+    --popover-foreground: 0 0% 100%;
+    --card: 220 13% 18%;
+    --card-foreground: 0 0% 100%;
+    --sidebar-background: 220 13% 14%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 222 90% 68%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 13% 20%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 220 16% 22%;
+    --sidebar-ring: 222 90% 68%;
+  }
+
+  /* Los alias --color-* de @theme se resuelven EN :root: ahí `hsl(var(--background))` se sustituye
+     una sola vez, con el valor claro, y los hijos heredan ya el color resuelto. Por eso poner .dark
+     en un SUBÁRBOL cambiaba --background pero no --color-background, y el subárbol seguía claro.
+     Recalcularlos bajo .dark permite pintar en oscuro cualquier rama del DOM sin tocar <html>
+     (los mockups apilan tableros claros y oscuros en la misma página). Para la app real, que
+     togglea .dark sobre documentElement, esto da exactamente el mismo resultado que antes. */
+  .dark {
+    --color-border: hsl(var(--border));
+    --color-input: hsl(var(--input));
+    --color-ring: hsl(var(--ring));
+    --color-background: hsl(var(--background));
+    --color-foreground: hsl(var(--foreground));
+    --color-primary: hsl(var(--primary));
+    --color-primary-foreground: hsl(var(--primary-foreground));
+    --color-secondary: hsl(var(--secondary));
+    --color-secondary-foreground: hsl(var(--secondary-foreground));
+    --color-destructive: hsl(var(--destructive));
+    --color-destructive-foreground: hsl(var(--destructive-foreground));
+    --color-muted: hsl(var(--muted));
+    --color-muted-foreground: hsl(var(--muted-foreground));
+    --color-accent: hsl(var(--accent));
+    --color-accent-foreground: hsl(var(--accent-foreground));
+    --color-popover: hsl(var(--popover));
+    --color-popover-foreground: hsl(var(--popover-foreground));
+    --color-card: hsl(var(--card));
+    --color-card-foreground: hsl(var(--card-foreground));
+    --color-sidebar: hsl(var(--sidebar-background));
+    --color-sidebar-background: hsl(var(--sidebar-background));
+    --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+    --color-sidebar-primary: hsl(var(--sidebar-primary));
+    --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+    --color-sidebar-accent: hsl(var(--sidebar-accent));
+    --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+    --color-sidebar-border: hsl(var(--sidebar-border));
+    --color-sidebar-ring: hsl(var(--sidebar-ring));
+  }
+}
+
+@theme {
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-sidebar: hsl(var(--sidebar-background));
+  --color-sidebar-background: hsl(var(--sidebar-background));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --radius-lg: 0.5rem;
+  --radius-md: calc(0.5rem - 2px);
+  --radius-sm: calc(0.5rem - 4px);
+
+  /* Fuentes (Tailwind v4 auto-genera las utilidades font-sans/font-mono/font-display y expone
+     --font-* en :root, así el `* { font-family: var(--font-sans) }` del base layer sigue resolviendo). */
+  --font-sans:
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  /* Display: títulos/titlebar — Inter Tight (más apretada para headings). */
+  --font-display:
+    "Inter Tight Variable", "Inter Variable", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}

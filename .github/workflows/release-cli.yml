@@ -1,0 +1,31 @@
+name: release-cli
+
+# The CLI owns the plain `v*` tag namespace.
+# Kit content is versioned separately with `kit-v*` tags, which do not
+# match this filter and therefore never cut a binary release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tool
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: tool/go.sum
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          args: release --clean
+          workdir: tool
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

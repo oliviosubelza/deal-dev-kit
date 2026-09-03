@@ -619,3 +619,49 @@ func TestViewPlanStage(t *testing.T) {
 	m := send(t, expandAll(New(testConfig(t, nil))), "a", "p")
 	assertGolden(t, "plan", m.View())
 }
+
+func TestEnterNeverApplies(t *testing.T) {
+	// Enter navigates into the plan screen, so accepting it as confirmation
+	// lets a single repeated keypress install everything. On Windows the Enter
+	// that launched the process arrives as input and did exactly that.
+	cfg := testConfig(t, nil)
+	m := send(t, New(cfg), "enter") // menu: "Instalar todo"
+	if m.screen != screenPlan {
+		t.Fatalf("screen = %v, want screenPlan", m.screen)
+	}
+
+	m = send(t, m, "enter")
+	if m.screen == screenApplied {
+		t.Fatal("a second Enter applied the plan")
+	}
+	if _, err := os.Stat(filepath.Join(cfg.ProjectRoot, lockfile.Name)); err == nil {
+		t.Error("Enter wrote the lockfile")
+	}
+	entries, _ := os.ReadDir(cfg.ProjectRoot)
+	if len(entries) != 0 {
+		t.Errorf("Enter wrote %d entries into the project", len(entries))
+	}
+}
+
+func TestOnlyYApplies(t *testing.T) {
+	cfg := testConfig(t, nil)
+	m := send(t, New(cfg), "enter", "y")
+
+	if m.screen != screenApplied {
+		t.Fatalf("screen = %v (err: %v), want screenApplied", m.screen, m.err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.ProjectRoot, lockfile.Name)); err != nil {
+		t.Errorf("the lockfile was not written: %v", err)
+	}
+}
+
+func TestEnterOnThePlanReturnsToWhereItCameFrom(t *testing.T) {
+	m := send(t, expandAll(New(testConfig(t, nil))), "a", "p")
+	if m.screen != screenPlan {
+		t.Fatalf("screen = %v, want screenPlan", m.screen)
+	}
+	m = send(t, m, "enter")
+	if m.screen != screenComponents {
+		t.Errorf("screen = %v, want to return to the component list", m.screen)
+	}
+}

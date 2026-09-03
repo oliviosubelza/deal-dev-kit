@@ -287,13 +287,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case screenPlan:
 		switch key {
-		case "y", "enter":
+		// Only "y" writes. Enter must never commit changes: it is the key that
+		// navigates INTO this screen, and on Windows the Enter that launched
+		// the process leaks into it, which walked menu → plan → apply and
+		// installed everything without a decision.
+		case "y":
 			if len(m.plan.Blocked()) > 0 || len(m.plan.Changes()) == 0 {
 				m.screen, m.plan = m.returnTo, nil
 				return m, nil
 			}
 			return m, m.apply()
-		case "esc", "left", "h", "n":
+		case "enter", "esc", "left", "h", "n":
 			m.screen, m.plan = m.returnTo, nil
 		case "q":
 			m.quitting = true

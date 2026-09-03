@@ -51,11 +51,12 @@ func takesValue(fs *flag.FlagSet, arg string) bool {
 // commands are the recognised subcommand names. Artifact IDs always contain a
 // "/", so a positional argument can never be mistaken for one.
 var commands = map[string]bool{
-	"browse": true,
-	"init":   true,
-	"add":    true,
-	"update": true,
-	"status": true,
+	"browse":      true,
+	"init":        true,
+	"add":         true,
+	"update":      true,
+	"self-update": true,
+	"status":      true,
 }
 
 // extractCommand finds the subcommand anywhere in args and returns it along

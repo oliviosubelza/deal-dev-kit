@@ -136,3 +136,13 @@ func TestIsHelpOrVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestSelfUpdateIsRecognisedAsACommand(t *testing.T) {
+	cmd, rest := extractCommand([]string{"self-update", "--check"})
+	if cmd != "self-update" {
+		t.Errorf("command = %q, want self-update", cmd)
+	}
+	if len(rest) != 1 || rest[0] != "--check" {
+		t.Errorf("rest = %v, want [--check]", rest)
+	}
+}

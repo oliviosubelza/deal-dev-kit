@@ -57,6 +57,7 @@ func run(args []string) error {
 		dryRun       = fs.Bool("dry-run", false, "print the plan and stop")
 		noDeps       = fs.Bool("no-deps", false, "do not run the package manager")
 		here         = fs.Bool("here", false, "use the current directory as the project root")
+		check        = fs.Bool("check", false, "self-update: report the latest version without installing it")
 	)
 	if err := fs.Parse(permute(fs, rest)); err != nil {
 		return err
@@ -70,7 +71,8 @@ func run(args []string) error {
 		Stdout: os.Stdout, Stderr: os.Stderr, Stdin: os.Stdin,
 		Cwd: cwd, Version: version,
 		KitDir: *kitDir, Repo: *repo, Ref: *ref, Offline: *offline,
-		AssumeYes: *yes, DryRun: *dryRun, NoDeps: *noDeps, Here: *here,
+		ReleaseRepo: os.Getenv("DEAL_KIT_RELEASE_REPO"),
+		AssumeYes:   *yes, DryRun: *dryRun, NoDeps: *noDeps, Here: *here,
 	}
 
 	switch name {
@@ -82,6 +84,8 @@ func run(args []string) error {
 		return cli.Add(env, fs.Args())
 	case "update":
 		return cli.Update(env)
+	case "self-update":
+		return cli.SelfUpdate(env, *check)
 	case "status":
 		return cli.Status(env)
 	default:
@@ -102,6 +106,7 @@ Commands:
   add <id>...  Install additional artifacts
   update       Move the kit pin forward and re-sync
   status       Show what is installed, and whether it has drifted
+  self-update  Replace this binary with the latest release
 
 Flags:
   --repo       Kit repository (or set DEAL_KIT_REPO)
@@ -113,5 +118,6 @@ Flags:
   --yes        Apply without confirmation
   --no-deps    Skip the package manager install
   --here       Use the current directory as the project root
+  --check      With self-update, only report what is available
 `, version)
 }

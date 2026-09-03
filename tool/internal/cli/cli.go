@@ -36,6 +36,9 @@ type Env struct {
 	Ref     string
 	Offline bool
 
+	// ReleaseRepo is where the CLI's own releases are published.
+	ReleaseRepo string
+
 	AssumeYes bool // --yes: apply without confirming
 	DryRun    bool // --dry-run: print the plan and stop
 	NoDeps    bool // --no-deps: skip the package manager install

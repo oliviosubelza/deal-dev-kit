@@ -44,11 +44,11 @@ func (m Model) View() string {
 	case screenPlan:
 		lines = append(lines, m.planLines()...)
 	case screenApplied:
-		lines = append(lines,
-			"",
-			goodText.Render("✓ Aplicado")+subtle.Render(fmt.Sprintf("   %d archivo(s) modificados", m.changed)),
-			"",
-			subtle.Render("El deal-kit.lock del proyecto ya registra qué archivos son del kit."))
+		lines = append(lines, "",
+			goodText.Render("✓ Aplicado")+subtle.Render(fmt.Sprintf("   %d archivo(s)", m.changed)), "")
+		lines = append(lines, m.changeTree(m.appliedRows)...)
+		lines = append(lines, "",
+			subtle.Render("deal-kit.lock registra qué archivos son del kit."))
 	case screenFailed:
 		lines = append(lines, "", badText.Render("✗ "+m.err.Error()))
 	}
@@ -74,7 +74,10 @@ func (m Model) titleLines() []string {
 	if m.updateAvailable() {
 		crumbs += warnText.Render("  ↑ " + m.cfg.KitVersion + " disponible")
 	}
-	return []string{title, crumbs, ""}
+	// Always show which directory is being written to. "crm-deal-web" alone is
+	// not enough when several checkouts share a name.
+	where := faintText.Render(shortenPath(m.cfg.ProjectRoot, m.content()))
+	return []string{title, crumbs, where, ""}
 }
 
 // --- menu ---

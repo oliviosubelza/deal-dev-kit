@@ -98,9 +98,10 @@ type Model struct {
 	filter    string
 	filtering bool
 
-	plan    *plan.Plan
-	err     error
-	changed int
+	plan        *plan.Plan
+	err         error
+	changed     int
+	appliedRows []plan.DirSummary // summarised before the plan is released
 
 	quitting bool
 }
@@ -254,6 +255,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.changed, m.screen = msg.changed, screenApplied
+		if m.plan != nil {
+			// Keep the data, not rendered text: rendering here would bake in
+			// whatever config was current at apply time.
+			m.appliedRows = plan.Summarize(m.plan.Actions)
+		}
 		return m, tea.Quit
 
 	case tea.KeyMsg:

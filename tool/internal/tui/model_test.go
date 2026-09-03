@@ -500,11 +500,20 @@ func TestQuitFromAnyStage(t *testing.T) {
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-// assertGolden compares ANSI-stripped output, so the assertion is about layout
-// and wording rather than the terminal's colour profile.
+// goldenView renders a model for comparison: ANSI is stripped so the assertion
+// is about layout and wording rather than the terminal's colour profile, and
+// the temporary project path is replaced so the golden stays deterministic
+// across runs and machines.
+func goldenView(m Model) string {
+	// Pin the path before rendering rather than scrubbing afterwards: the
+	// header shortens long paths, so what reaches the output is a truncated
+	// tail that no substitution of the original would match.
+	m.cfg.ProjectRoot = "/projects/crm-deal-web"
+	return ansi.ReplaceAllString(m.View(), "")
+}
+
 func assertGolden(t *testing.T, name, got string) {
 	t.Helper()
-	got = ansi.ReplaceAllString(got, "")
 	path := filepath.Join("testdata", name+".golden")
 
 	if *update {
@@ -525,13 +534,13 @@ func assertGolden(t *testing.T, name, got string) {
 func TestViewSelectStage(t *testing.T) {
 	m := cursorTo(t, New(testConfig(t, nil)), "ui-kit/button")
 	m = send(t, m, " ")
-	assertGolden(t, "select", m.View())
+	assertGolden(t, "select", goldenView(m))
 }
 
 func TestViewMenu(t *testing.T) {
 	// The browser opens on a menu, so skills and components are never mixed
 	// into one list the user cannot interpret.
-	assertGolden(t, "menu", New(testConfig(t, nil)).View())
+	assertGolden(t, "menu", goldenView(New(testConfig(t, nil))))
 }
 
 func TestTabFoldsAndUnfolds(t *testing.T) {
@@ -612,12 +621,12 @@ func TestFilterTypingDoesNotTriggerCommands(t *testing.T) {
 func TestViewFilter(t *testing.T) {
 	m := New(testConfig(t, nil))
 	m = send(t, m, "/", "b", "u", "t")
-	assertGolden(t, "filter", m.View())
+	assertGolden(t, "filter", goldenView(m))
 }
 
 func TestViewPlanStage(t *testing.T) {
 	m := send(t, expandAll(New(testConfig(t, nil))), "a", "p")
-	assertGolden(t, "plan", m.View())
+	assertGolden(t, "plan", goldenView(m))
 }
 
 func TestEnterNeverApplies(t *testing.T) {
@@ -664,4 +673,15 @@ func TestEnterOnThePlanReturnsToWhereItCameFrom(t *testing.T) {
 	if m.screen != screenComponents {
 		t.Errorf("screen = %v, want to return to the component list", m.screen)
 	}
+}
+
+func TestViewAppliedShowsWhereTheWorkLanded(t *testing.T) {
+	cfg := testConfig(t, nil)
+	m := send(t, onScreen(New(cfg), screenSkills), "a")
+	m = send(t, expandAll(m), "a", "p", "y")
+
+	if m.screen != screenApplied {
+		t.Fatalf("screen = %v (err: %v)", m.screen, m.err)
+	}
+	assertGolden(t, "applied", goldenView(m))
 }

@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -91,4 +92,55 @@ func depSpecs(deps map[string]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// renderSummary prints where a sync landed, as a short per-directory tree.
+// Echoing every path is unreadable at 74 files and tells the reader less than
+// knowing which directories were touched.
+func renderSummary(w io.Writer, projectRoot string, p *plan.Plan) {
+	rows := plan.Summarize(p.Actions)
+	if len(rows) == 0 {
+		return
+	}
+
+	// Size the column to the content: a fixed width either truncates a long
+	// path or leaves a gap wide enough to lose the eye across.
+	width := 0
+	for _, r := range rows {
+		if n := len(r.Dir); n > width {
+			width = n
+		}
+	}
+
+	fmt.Fprintf(w, "\n  %s\n", filepath.Base(projectRoot))
+	for i, r := range rows {
+		branch := "├──"
+		if i == len(rows)-1 {
+			branch = "└──"
+		}
+		fmt.Fprintf(w, "  %s %-*s  %s\n", branch, width, r.Dir, counts(r))
+	}
+}
+
+// counts spells each number out, so the line reads without colour.
+func counts(r plan.DirSummary) string {
+	var parts []string
+	if r.Created > 0 {
+		parts = append(parts, fmt.Sprintf("+%d %s", r.Created, plural(r.Created, "nuevo", "nuevos")))
+	}
+	if r.Overwritten > 0 {
+		parts = append(parts, fmt.Sprintf("~%d %s", r.Overwritten, plural(r.Overwritten, "actualizado", "actualizados")))
+	}
+	if r.Deleted > 0 {
+		parts = append(parts, fmt.Sprintf("-%d %s", r.Deleted, plural(r.Deleted, "eliminado", "eliminados")))
+	}
+	return strings.Join(parts, "  ")
+}
+
+// plural picks the Spanish singular or plural form for a count.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }

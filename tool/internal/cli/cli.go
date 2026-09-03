@@ -136,7 +136,8 @@ func Init(e Env, typeOverride string) error {
 		roots = lock.Roots // a project may override the standard layout
 	}
 
-	fmt.Fprintf(e.Stdout, "  detected  %s  (%s)\n", pt, filepath.Base(root))
+	fmt.Fprintf(e.Stdout, "  project   %s\n", root)
+	fmt.Fprintf(e.Stdout, "  detected  %s\n", pt)
 	fmt.Fprintf(e.Stdout, "  kit       %s\n", ck.Version)
 	fmt.Fprintf(e.Stdout, "  roots     %s\n", formatRoots(roots))
 	fmt.Fprintf(e.Stdout, "  profile   %s\n\n", pt)
@@ -217,6 +218,7 @@ func Status(e Env) error {
 	if pinned == "" {
 		pinned = "(unpinned)"
 	}
+	fmt.Fprintf(e.Stdout, "  project   %s\n", root)
 	fmt.Fprintf(e.Stdout, "  kit       %s\n  type      %s\n", pinned, pt)
 	if ck.Version != pinned && ck.Version != "local" {
 		fmt.Fprintf(e.Stdout, "  available %s  (run `deal-kit update`)\n", ck.Version)
@@ -307,7 +309,8 @@ func syncArtifacts(e Env, root string, ck kit.Checkout, m *kit.Manifest, lock *l
 			return fmt.Errorf("dependency install failed: %w", err)
 		}
 	}
-	fmt.Fprintf(e.Stdout, "\n  done: %d file(s) changed\n", len(p.Changes()))
+	renderSummary(e.Stdout, root, p)
+	fmt.Fprintf(e.Stdout, "\n  listo: %d archivo(s)\n", len(p.Changes()))
 	return nil
 }
 

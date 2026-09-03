@@ -4,19 +4,13 @@
 ║   crm-deal-web  ·  web  ·  kit sin fijar                             ║
 ║   /projects/crm-deal-web                                             ║
 ║                                                                      ║
-║   Revisar cambios                                                    ║
 ║                                                                      ║
-║   Todo el proyecto  ·  2 nuevos                                      ║
+║   ✓ Aplicado   4 archivo(s)                                          ║
 ║                                                                      ║
-║   Componentes de UI  (2)                                             ║
-║     +  src/shared/lib/utils.ts                                       ║
-║     +  src/shared/ui/button.tsx                                      ║
+║   crm-deal-web                                                       ║
+║   ├── .claude/skills   +2 nuevos                                     ║
+║   └── src/shared       +2 nuevos                                     ║
 ║                                                                      ║
-║                                                                      ║
-║   Dependencias npm   pnpm                                            ║
-║                                                                      ║
-║     clsx@^2.1.1                                                      ║
-║                                                                      ║
-║   y: aplicar  •  n: cancelar  •  esc: volver  •  q: salir            ║
+║   deal-kit.lock registra qué archivos son del kit.                   ║
 ║                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════╝

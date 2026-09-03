@@ -27,6 +27,7 @@ type Env struct {
 
 	Cwd     string // where the command was invoked
 	Version string // the CLI's own version
+	Here    bool   // --here: treat Cwd as the project root
 
 	// Where the kit comes from. KitDir short-circuits the fetch and points at
 	// a local checkout, which is how the kit itself is developed.
@@ -57,15 +58,25 @@ func (e Env) kit() (kit.Checkout, error) {
 // running deal-kit from src/features would otherwise install a second tree.
 func (e Env) ProjectRoot() (string, error) {
 	dir := filepath.Clean(e.Cwd)
+
+	// --here bootstraps a directory that has no project markers yet. It stays
+	// opt-in: without it, a mistyped path would quietly grow a source tree.
+	if e.Here {
+		if _, err := os.Stat(filepath.Join(dir, "kit.yaml")); err == nil {
+			return "", fmt.Errorf("%s is the kit itself: --here cannot install the kit into the kit", dir)
+		}
+		return dir, nil
+	}
 	for {
 		// Check for the kit BEFORE the project markers. The kit is itself a
 		// git repository, so testing .git first matches it and then fails
 		// later with a confusing "what kind of project is this?".
 		if _, err := os.Stat(filepath.Join(dir, "kit.yaml")); err == nil {
+			// Do not suggest a concrete sibling directory: naming one that may
+			// not exist turns the message into a guess the user then chases.
 			return "", fmt.Errorf("%s is the kit itself, not a project.\n"+
-				"  The kit is what you install FROM. Run deal-kit from inside the\n"+
-				"  project you want to install INTO:\n"+
-				"    cd ../crm-deal-web && deal-kit", dir)
+				"  The kit is what you install FROM. Change into the project you\n"+
+				"  want to install INTO, then run deal-kit there.", dir)
 		}
 		for _, marker := range []string{lockfile.Name, "package.json", ".git"} {
 			if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
@@ -75,7 +86,10 @@ func (e Env) ProjectRoot() (string, error) {
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			return "", fmt.Errorf("not inside a project: no package.json, .git or %s found above %s.\n"+
-				"  Create the project first, or cd into an existing one.", lockfile.Name, e.Cwd)
+				"  If this is a new project, start it and run deal-kit again:\n"+
+				"    git init  ·  pnpm init  ·  pnpm create vite\n"+
+				"  Or use this directory as-is:\n"+
+				"    deal-kit init --here --type web", lockfile.Name, e.Cwd)
 		}
 		dir = parent
 	}

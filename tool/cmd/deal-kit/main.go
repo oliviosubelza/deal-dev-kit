@@ -56,6 +56,7 @@ func run(args []string) error {
 		yes          = fs.Bool("yes", false, "apply without confirmation")
 		dryRun       = fs.Bool("dry-run", false, "print the plan and stop")
 		noDeps       = fs.Bool("no-deps", false, "do not run the package manager")
+		here         = fs.Bool("here", false, "use the current directory as the project root")
 	)
 	if err := fs.Parse(permute(fs, rest)); err != nil {
 		return err
@@ -69,7 +70,7 @@ func run(args []string) error {
 		Stdout: os.Stdout, Stderr: os.Stderr, Stdin: os.Stdin,
 		Cwd: cwd, Version: version,
 		KitDir: *kitDir, Repo: *repo, Ref: *ref, Offline: *offline,
-		AssumeYes: *yes, DryRun: *dryRun, NoDeps: *noDeps,
+		AssumeYes: *yes, DryRun: *dryRun, NoDeps: *noDeps, Here: *here,
 	}
 
 	switch name {
@@ -111,5 +112,6 @@ Flags:
   --dry-run    Print the plan without writing anything
   --yes        Apply without confirmation
   --no-deps    Skip the package manager install
+  --here       Use the current directory as the project root
 `, version)
 }

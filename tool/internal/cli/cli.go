@@ -58,17 +58,19 @@ func (e Env) kit() (kit.Checkout, error) {
 func (e Env) ProjectRoot() (string, error) {
 	dir := filepath.Clean(e.Cwd)
 	for {
+		// Check for the kit BEFORE the project markers. The kit is itself a
+		// git repository, so testing .git first matches it and then fails
+		// later with a confusing "what kind of project is this?".
+		if _, err := os.Stat(filepath.Join(dir, "kit.yaml")); err == nil {
+			return "", fmt.Errorf("%s is the kit itself, not a project.\n"+
+				"  The kit is what you install FROM. Run deal-kit from inside the\n"+
+				"  project you want to install INTO:\n"+
+				"    cd ../crm-deal-web && deal-kit", dir)
+		}
 		for _, marker := range []string{lockfile.Name, "package.json", ".git"} {
 			if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
 				return dir, nil
 			}
-		}
-		// Running from inside the kit itself is the most likely mistake: the
-		// kit is what you install FROM, not into.
-		if _, err := os.Stat(filepath.Join(dir, "kit.yaml")); err == nil {
-			return "", fmt.Errorf("%s is the kit itself, not a project.\n"+
-				"  Run deal-kit from inside the project you want to install into:\n"+
-				"    cd ../my-project && deal-kit --kit-dir %s", dir, dir)
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

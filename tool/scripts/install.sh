@@ -6,14 +6,16 @@
 # Environment:
 #   DEAL_KIT_VERSION  release tag to install (default: latest)
 #   DEAL_KIT_BIN_DIR  install directory (default: $HOME/.local/bin)
-#   DEAL_KIT_REPO     kit repository to verify SSH access against
+#   DEAL_KIT_REPO     kit repository to verify access to
 
 set -eu
 
 REPO="oliviosubelza/deal-dev-kit"
 VERSION="${DEAL_KIT_VERSION:-latest}"
 BIN_DIR="${DEAL_KIT_BIN_DIR:-$HOME/.local/bin}"
-KIT_REPO="${DEAL_KIT_REPO:-git@github.com:oliviosubelza/deal-dev-kit.git}"
+# Must match kit.DefaultRepo in the CLI: checking a URL the CLI never uses
+# reports a problem that does not exist, and misses one that does.
+KIT_REPO="${DEAL_KIT_REPO:-https://github.com/oliviosubelza/deal-dev-kit.git}"
 
 die() { echo "install: $*" >&2; exit 1; }
 
@@ -76,13 +78,18 @@ main() {
 	install -m 0755 "$tmp/deal-kit" "$BIN_DIR/deal-kit"
 	echo "==> installed to $BIN_DIR/deal-kit"
 
-	echo "==> checking SSH access to the kit repository"
-	if git ls-remote --exit-code "$KIT_REPO" HEAD >/dev/null 2>&1; then
+	echo "==> checking access to the kit repository"
+	# Never prompt: this runs inside a `curl | sh`, where a host-key or
+	# credential question has no terminal to answer it.
+	if GIT_TERMINAL_PROMPT=0 \
+		GIT_SSH_COMMAND="ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new" \
+		git ls-remote --exit-code "$KIT_REPO" HEAD >/dev/null 2>&1; then
 		echo "    ok"
 	else
-		echo "    WARNING: no SSH access to $KIT_REPO" >&2
+		echo "    WARNING: cannot reach $KIT_REPO" >&2
 		echo "    deal-kit is installed but cannot fetch the kit yet." >&2
-		echo "    Add your SSH key to GitHub and request access to the repository." >&2
+		echo "    If the repository is private, make sure your git credentials" >&2
+		echo "    or SSH key have access, then run: deal-kit status" >&2
 	fi
 
 	case ":$PATH:" in

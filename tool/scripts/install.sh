@@ -29,7 +29,7 @@ detect_target() {
 	esac
 	case "$os" in
 		linux|darwin) ;;
-		*) die "unsupported OS: $os (on Windows, run this from WSL)" ;;
+		*) die "unsupported OS: $os (on Windows use install.ps1, or run this from WSL)" ;;
 	esac
 	echo "${os}_${arch}"
 }

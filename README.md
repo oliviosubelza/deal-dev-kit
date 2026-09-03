@@ -6,13 +6,21 @@ project.
 
 ## Install the CLI
 
+Linux, macOS and WSL:
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/oliviosubelza/deal-dev-kit/main/tool/scripts/install.sh | sh
 ```
 
-No Go toolchain required: the script downloads a prebuilt static binary for your
-platform, verifies its SHA-256 checksum, and installs it to `~/.local/bin`.
-Pin a version with `DEAL_KIT_VERSION=v1.4.0`.
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/oliviosubelza/deal-dev-kit/main/tool/scripts/install.ps1 | iex
+```
+
+No Go toolchain required: the installer downloads a prebuilt binary for your
+platform and verifies its SHA-256 checksum before installing it. Pin a version
+with `DEAL_KIT_VERSION=v1.4.0`.
 
 ## Usage
 

@@ -41,14 +41,13 @@ import_rewrites:
 
 # What `deal-kit init` installs for each project type.
 profiles:
-  backend: [general/conventions, general/pr-workflow, backend/architecture, backend/connections]
-  web:     [general/conventions, general/pr-workflow, web/architecture, web/ui, ui-kit/base, ui-kit/theme]
-  mobile:  [general/conventions, general/pr-workflow, mobile/architecture, mobile/offline]
+  backend: [general/conventions, backend/architecture, backend/connections]
+  web:     [general/conventions, web/architecture, web/ui, ui-kit/base, ui-kit/theme]
+  mobile:  [general/conventions, mobile/architecture, mobile/offline]
 
 artifacts:
   # ---- skills ----
   - { id: general/conventions,  type: skill, applies_to: [backend, web, mobile], src: skills/general/conventions, group: "Team conventions" }
-  - { id: general/pr-workflow,  type: skill, applies_to: [backend, web, mobile], src: skills/general/pr-workflow, group: "Team conventions" }
   - { id: backend/architecture, type: skill, applies_to: [backend], src: skills/backend/architecture, group: "Backend" }
   - { id: backend/connections,  type: skill, applies_to: [backend], src: skills/backend/connections, group: "Backend" }
   - { id: web/architecture,     type: skill, applies_to: [web],     src: skills/web/architecture, group: "Web" }

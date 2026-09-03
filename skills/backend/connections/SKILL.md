@@ -70,8 +70,6 @@ SNS publishes, SQS consumes, and the fan-out is what keeps services decoupled.
 
 **Every SQS handler must be idempotent.** SQS guarantees at-least-once delivery, so the same message *will* arrive twice — this is normal operation, not an error case. Deduplicate on a message or business key held in Redis (`infrastructure/cache/`), and make the handler safe to run again.
 
-An event is a fact that already happened, named in the past tense (`OrderPlaced`, `InvoiceCancelled`). It is not a command to another service.
-
 ## Realtime
 
 `interface/realtime/` serves server push: SSE via NestJS's `@Sse`, or WebSocket. The Gateway forwards the stream **without buffering** — buffering a stream is the same as breaking it.

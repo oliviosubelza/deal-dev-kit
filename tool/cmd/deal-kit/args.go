@@ -48,24 +48,17 @@ func takesValue(fs *flag.FlagSet, arg string) bool {
 	return !(ok && bf.IsBoolFlag())
 }
 
-// commands are the recognised subcommand names. Artifact IDs always contain a
-// "/", so a positional argument can never be mistaken for one.
-var commands = map[string]bool{
-	"browse":      true,
-	"init":        true,
-	"add":         true,
-	"update":      true,
-	"self-update": true,
-	"status":      true,
-}
-
+// Artifact IDs always contain a "/", so a positional argument can never be
+// mistaken for a subcommand name.
+//
 // extractCommand finds the subcommand anywhere in args and returns it along
 // with the remaining arguments. Flags may precede it — `deal-kit --kit-dir X`
 // with no subcommand at all opens the browser — so the command cannot simply
 // be assumed to be args[0].
 func extractCommand(args []string) (string, []string) {
+	known := commandNames()
 	for i, arg := range args {
-		if commands[arg] {
+		if known[arg] {
 			rest := make([]string, 0, len(args)-1)
 			rest = append(rest, args[:i]...)
 			rest = append(rest, args[i+1:]...)

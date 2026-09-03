@@ -146,3 +146,39 @@ func TestSelfUpdateIsRecognisedAsACommand(t *testing.T) {
 		t.Errorf("rest = %v, want [--check]", rest)
 	}
 }
+
+func TestEveryCommandIsRecognised(t *testing.T) {
+	// Dispatch and name recognition both derive from the same table, so this
+	// guards the property rather than a hand-copied list: twice a new command
+	// fell through to the browser because a second list was not updated.
+	for _, c := range commands() {
+		t.Run(c.name, func(t *testing.T) {
+			got, _ := extractCommand([]string{c.name})
+			if got != c.name {
+				t.Errorf("extractCommand(%q) = %q", c.name, got)
+			}
+			if _, ok := lookup(c.name); !ok {
+				t.Errorf("lookup(%q) failed", c.name)
+			}
+			if c.run == nil {
+				t.Errorf("%q has no handler", c.name)
+			}
+			if c.summary == "" {
+				t.Errorf("%q has no summary for the usage text", c.name)
+			}
+		})
+	}
+}
+
+func TestUnknownCommandIsNotDispatched(t *testing.T) {
+	if _, ok := lookup("uninstall"); ok {
+		t.Error("lookup accepted a command that does not exist")
+	}
+}
+
+func TestBrowseIsTheDefault(t *testing.T) {
+	got, _ := extractCommand(nil)
+	if _, ok := lookup(got); !ok || got != "browse" {
+		t.Errorf("default command = %q, want browse", got)
+	}
+}

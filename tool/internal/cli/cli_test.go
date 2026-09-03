@@ -132,7 +132,9 @@ func TestProjectRootErrorNamesTheWayForward(t *testing.T) {
 	}
 	// A message that says "create the project first" without saying how sends
 	// the reader off to guess.
-	for _, want := range []string{"git init", "--here"} {
+	// The browser accepts --here too, so naming only `init --here` reads as
+	// though the directory is unusable.
+	for _, want := range []string{"git init", "deal-kit --here"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error does not mention %q:\n%s", want, err)
 		}

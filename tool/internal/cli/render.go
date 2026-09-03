@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/doctor"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/pm"
@@ -143,4 +144,28 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// renderDoctor prints one line per tool. Status is a word, not a colour, so it
+// survives a pipe and a monochrome terminal.
+func renderDoctor(w io.Writer, rep doctor.Report) {
+	fmt.Fprintln(w, "  toolchain")
+	for _, r := range rep.Results {
+		status := "not found"
+		if r.Found {
+			status = "found"
+			if r.Version != "" {
+				status = r.Version
+			}
+		} else if !r.Required {
+			status = "not found (optional)"
+		}
+		fmt.Fprintf(w, "    %-6s %-22s %s\n", r.Name, status, r.Purpose)
+	}
+	if missing := rep.Missing(); len(missing) > 0 {
+		fmt.Fprintln(w)
+		for _, r := range missing {
+			fmt.Fprintf(w, "  %s is required to %s\n", r.Name, r.Purpose)
+		}
+	}
 }

@@ -88,11 +88,15 @@ func (e Env) ProjectRoot() (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
+			// Name --here on its own, the way the user just invoked the tool:
+			// pointing only at `init --here` reads as "this is not for you"
+			// when the browser accepts the same flag.
 			return "", fmt.Errorf("not inside a project: no package.json, .git or %s found above %s.\n"+
-				"  If this is a new project, start it and run deal-kit again:\n"+
-				"    git init  ·  pnpm init  ·  pnpm create vite\n"+
-				"  Or use this directory as-is:\n"+
-				"    deal-kit init --here --type web", lockfile.Name, e.Cwd)
+				"  To work in this directory anyway, add --here:\n"+
+				"    deal-kit --here\n"+
+				"  Or start the project first, then run deal-kit again:\n"+
+				"    git init  ·  pnpm init  ·  pnpm create vite",
+				lockfile.Name, e.Cwd)
 		}
 		dir = parent
 	}

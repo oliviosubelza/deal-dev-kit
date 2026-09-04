@@ -96,7 +96,7 @@ func TestStatusReportsAnOrphanedArtifactInsteadOfFailing(t *testing.T) {
 	if !strings.Contains(out.String(), "general/pr-workflow") {
 		t.Errorf("the orphan is missing from the report:\n%s", out)
 	}
-	if !strings.Contains(out.String(), "ORPHANED") {
+	if !strings.Contains(out.String(), "HUÉRFANO") {
 		t.Errorf("the orphan is not reported as ORPHANED:\n%s", out)
 	}
 	if !strings.Contains(out.String(), "web/ui") {
@@ -111,7 +111,7 @@ func TestStatusOnAProjectWithNoOrphansIsUnchanged(t *testing.T) {
 	if err := Status(e); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "ORPHANED") {
+	if strings.Contains(out.String(), "HUÉRFANO") {
 		t.Errorf("nothing is orphaned here:\n%s", out)
 	}
 	if !strings.Contains(out.String(), "web/ui                   ok") {
@@ -127,7 +127,7 @@ func TestUpdatePlansTheDeletionOfAnOrphanedArtifact(t *testing.T) {
 	if err := Update(e); err != nil {
 		t.Fatalf("Update() = %v, want no error", err)
 	}
-	if !strings.Contains(out.String(), "delete    "+orphanPath) {
+	if !strings.Contains(out.String(), "borrar       "+orphanPath) {
 		t.Errorf("the orphan's file is not planned for deletion:\n%s", out)
 	}
 }
@@ -164,10 +164,10 @@ func TestUpdateBlocksAnOrphanedArtifactWithALocalEdit(t *testing.T) {
 	if err == nil {
 		t.Fatal("Update() = nil, want the blocked error")
 	}
-	if !strings.Contains(err.Error(), "need attention") {
+	if !strings.Contains(err.Error(), "requieren atención") {
 		t.Errorf("error = %v, want the same blocked wording every artifact uses", err)
 	}
-	if !strings.Contains(out.String(), "no longer part of this artifact, but edited locally") {
+	if !strings.Contains(out.String(), "ya no forma parte de este artefacto, pero fue editado localmente") {
 		t.Errorf("the reason is missing from the report:\n%s", out)
 	}
 	abs := filepath.Join(projectDir, filepath.FromSlash(orphanPath))
@@ -194,7 +194,7 @@ func TestAddStillRejectsAnIDTheManifestDoesNotDeclare(t *testing.T) {
 	if err == nil {
 		t.Fatal("Add() = nil, want an error for an unknown id")
 	}
-	if !strings.Contains(err.Error(), `unknown artifact "ui-kit/buton"`) {
+	if !strings.Contains(err.Error(), `artefacto desconocido "ui-kit/buton"`) {
 		t.Errorf("error = %v, want unknown artifact", err)
 	}
 }
@@ -210,7 +210,7 @@ func TestStatusOmitsTheDetailColumnForAnOrphanWithNoFilesLeft(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, line := range strings.Split(out.String(), "\n") {
-		if strings.Contains(line, "ORPHANED") && line != strings.TrimRight(line, " ") {
+		if strings.Contains(line, "HUÉRFANO") && line != strings.TrimRight(line, " ") {
 			t.Errorf("the orphan line has a dangling detail column: %q", line)
 		}
 	}

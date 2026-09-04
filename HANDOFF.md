@@ -36,6 +36,17 @@ El workflow `release-cli` filtra por `v*`, y `kit-v*` no matchea. Está así por
 tags con prefijo tipo `cli/v1.0.0` requieren la config `monorepo` de **GoReleaser Pro**,
 que es de pago.
 
+### Orden de publicación: primero el CLI, después el kit
+
+El schema de `kit.yaml` está en **`version: 2`** (subió al declarar los tipos `command` y
+`agent`). El CLI acepta **1 y 2**, así que sigue leyendo los kits pineados en
+`kit-v0.2.0` o anteriores.
+
+**El tag `v*` del CLI se publica ANTES del tag `kit-v*`.** Un proyecto tiene que poder
+correr `deal-kit self-update` antes de poder pinear contenido que su binario viejo no
+sabe leer. Al revés, un binario anterior a este cambio falla con
+`kit.yaml: unsupported version 2 (expected 1)` y no hay camino de salida automático.
+
 ---
 
 ## 2. RESUELTO: `kit-v0.2.0` ya apunta a las 7 skills escritas

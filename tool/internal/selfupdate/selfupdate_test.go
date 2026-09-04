@@ -67,7 +67,7 @@ func TestLatestWithNoRelease(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error")
 	}
-	if !strings.Contains(err.Error(), "no published release") {
+	if !strings.Contains(err.Error(), "no se encontró ninguna versión publicada") {
 		t.Errorf("error = %q, want it to name the cause", err)
 	}
 }
@@ -100,7 +100,7 @@ func TestFetchRejectsATamperedBinary(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the checksum check to reject the download")
 	}
-	if !strings.Contains(err.Error(), "checksum mismatch") {
+	if !strings.Contains(err.Error(), "no coincide (se esperaba") {
 		t.Errorf("error = %q", err)
 	}
 }

@@ -21,7 +21,7 @@ func Interactive(e Env, typeOverride string) error {
 		return err
 	}
 	if !tui.IsTerminal(e.Stdout) {
-		return fmt.Errorf("not a terminal: use `deal-kit init`, `add` or `status` with --yes for non-interactive use")
+		return fmt.Errorf("no es una terminal: usar `deal-kit init`, `add` o `status` con --yes para uso no interactivo")
 	}
 	ck, err := e.kit()
 	if err != nil {
@@ -29,7 +29,7 @@ func Interactive(e Env, typeOverride string) error {
 	}
 	m, err := kit.LoadManifest(ck.Dir)
 	if err != nil {
-		return fmt.Errorf("reading the kit: %w", err)
+		return fmt.Errorf("no se pudo leer el kit: %w", err)
 	}
 	lock, existed, err := lockfile.Load(root)
 	if err != nil {
@@ -74,10 +74,10 @@ func Interactive(e Env, typeOverride string) error {
 		return nil
 	}
 	if manager == "" {
-		fmt.Fprintf(e.Stderr, "no package manager detected; install these yourself:\n  %s\n",
+		fmt.Fprintf(e.Stderr, "no se detectó ningún package manager; instalar estas dependencias a mano:\n  %s\n",
 			strings.Join(pm.InstallArgs(pm.NPM, deps)[2:], " "))
 		return nil
 	}
-	fmt.Fprintf(e.Stdout, "\ninstalling dependencies with %s\n", manager)
+	fmt.Fprintf(e.Stdout, "\ninstalando dependencias con %s\n", manager)
 	return pm.Install(root, manager, deps, e.Stdout)
 }

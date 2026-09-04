@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/doctor"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
@@ -24,24 +25,48 @@ func renderPlan(w io.Writer, p *plan.Plan, manager pm.Manager, hasManager, noDep
 
 	fmt.Fprintln(w, "  plan:")
 	for _, a := range changes {
-		fmt.Fprintf(w, "    %-9s %s\n", a.Kind, a.Path)
+		fmt.Fprintf(w, "    %-*s %s\n", kindW, kindLabel(a.Kind), a.Path)
 	}
 	if len(p.Deps) > 0 && !noDeps {
 		name := string(manager)
 		if !hasManager {
-			name = "no package manager detected"
+			name = "sin package manager detectado"
 		}
-		fmt.Fprintf(w, "    %-9s %s  (%s)\n", "deps", strings.Join(depSpecs(p.Deps), ", "), name)
+		fmt.Fprintf(w, "    %-*s %s  (%s)\n", kindW, "dependencias", strings.Join(depSpecs(p.Deps), ", "), name)
 	}
 
 	if len(blocked) > 0 {
-		fmt.Fprintln(w, "\n  needs attention:")
+		fmt.Fprintln(w, "\n  requiere atención:")
 		for _, a := range blocked {
 			fmt.Fprintf(w, "    %s\n      %s\n", a.Path, a.Reason)
 		}
-		fmt.Fprintln(w, "\n  deal-kit does not overwrite these. Bring the change back to the kit,")
-		fmt.Fprintln(w, "  or revert the file locally, then run again.")
+		fmt.Fprintln(w, "\n  deal-kit no sobrescribe estos archivos. Llevar el cambio al kit,")
+		fmt.Fprintln(w, "  o revertir el archivo localmente, y volver a ejecutar.")
 	}
+}
+
+// kindW is the width of the action column in the plan. It is sized to the
+// longest label a change can carry ("sobrescribir", and "dependencias" on the
+// deps line), so the paths line up in one column. Every label is ASCII, so
+// fmt's byte-counting padding is correct here.
+const kindW = 12
+
+// kindLabel is the Spanish word shown for an action. The plan.Kind constants
+// stay in English: they are internal domain values, never printed directly.
+func kindLabel(k plan.Kind) string {
+	switch k {
+	case plan.Create:
+		return "crear"
+	case plan.Overwrite:
+		return "sobrescribir"
+	case plan.Delete:
+		return "borrar"
+	case plan.Blocked:
+		return "bloqueado"
+	case plan.Unchanged:
+		return "sin cambios"
+	}
+	return string(k)
 }
 
 // renderStatus prints one line per installed artifact. orphans are ids the
@@ -72,19 +97,40 @@ func renderStatus(w io.Writer, artifacts []kit.Artifact, orphans []string, p *pl
 		if orphaned[id] {
 			// An orphan whose files are already gone has no path to name, and
 			// a dangling column reads as truncated output.
-			line := fmt.Sprintf("  %-24s ORPHANED  %s", id, detail[id])
+			line := statusLine(id, "HUÉRFANO", detail[id])
 			fmt.Fprintln(w, strings.TrimRight(line, " "))
 			continue
 		}
 		switch worst[id] {
 		case plan.Blocked:
-			fmt.Fprintf(w, "  %-24s MODIFIED  %s\n", id, detail[id])
+			fmt.Fprintln(w, statusLine(id, "MODIFICADO", detail[id]))
 		case plan.Create, plan.Overwrite, plan.Delete:
-			fmt.Fprintf(w, "  %-24s OUTDATED  %s\n", id, detail[id])
+			fmt.Fprintln(w, statusLine(id, "DESACTUALIZADO", detail[id]))
 		default:
-			fmt.Fprintf(w, "  %-24s ok\n", id)
+			fmt.Fprintln(w, strings.TrimRight(statusLine(id, "ok", ""), " "))
 		}
 	}
+}
+
+// Column widths for a status line. idW holds the longest artifact id with room
+// to spare; statusW is sized to "DESACTUALIZADO", the longest label.
+const (
+	idW     = 24
+	statusW = 14
+)
+
+// statusLine lays out one status row. Padding is measured in runes because
+// "HUÉRFANO" is one byte longer than it is wide, and fmt's %-Ns counts bytes.
+func statusLine(id, status, path string) string {
+	return "  " + padRight(id, idW) + " " + padRight(status, statusW) + "  " + path
+}
+
+// padRight pads s with spaces to a rune width.
+func padRight(s string, w int) string {
+	if n := utf8.RuneCountInString(s); n < w {
+		return s + strings.Repeat(" ", w-n)
+	}
+	return s
 }
 
 // rank orders states by how much they need a human's attention.
@@ -160,26 +206,31 @@ func plural(n int, one, many string) string {
 	return many
 }
 
+// doctorStatusW is the width of the status column in the doctor table.
+const doctorStatusW = 24
+
 // renderDoctor prints one line per tool. Status is a word, not a colour, so it
 // survives a pipe and a monochrome terminal.
 func renderDoctor(w io.Writer, rep doctor.Report) {
-	fmt.Fprintln(w, "  toolchain")
+	fmt.Fprintln(w, "  herramientas")
 	for _, r := range rep.Results {
-		status := "not found"
+		status := "no encontrado"
 		if r.Found {
-			status = "found"
+			status = "encontrado"
 			if r.Version != "" {
 				status = r.Version
 			}
 		} else if !r.Required {
-			status = "not found (optional)"
+			status = "no encontrado (opcional)"
 		}
-		fmt.Fprintf(w, "    %-6s %-22s %s\n", r.Name, status, r.Purpose)
+		// doctorStatusW is sized to "no encontrado (opcional)", the longest
+		// label; every one of them is ASCII, so %-*s pads correctly.
+		fmt.Fprintf(w, "    %-6s %-*s %s\n", r.Name, doctorStatusW, status, r.Purpose)
 	}
 	if missing := rep.Missing(); len(missing) > 0 {
 		fmt.Fprintln(w)
 		for _, r := range missing {
-			fmt.Fprintf(w, "  %s is required to %s\n", r.Name, r.Purpose)
+			fmt.Fprintf(w, "  %s es necesario para %s\n", r.Name, r.Purpose)
 		}
 	}
 }

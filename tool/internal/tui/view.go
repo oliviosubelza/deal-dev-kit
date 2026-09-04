@@ -309,7 +309,7 @@ func (m Model) statusLines() []string {
 	out = append(out, section.Render("Instalado"), "")
 	installed := m.cfg.Lock.Artifacts
 	if len(installed) == 0 {
-		out = append(out, faintText.Render("   todavía nada — instalá desde el menú"))
+		out = append(out, faintText.Render("   todavía nada — instalar desde el menú"))
 	}
 	shown := 0
 	for _, in := range installed {
@@ -380,13 +380,13 @@ func (m Model) planLines() []string {
 	}
 
 	if len(blocked) > 0 {
-		out = append(out, "", badText.Render("Necesita tu atención"), "")
+		out = append(out, "", badText.Render("Requiere atención"), "")
 		for _, a := range blocked {
 			out = append(out, bodyText.Render("  "+a.Path), faintText.Render("    "+a.Reason))
 		}
 		out = append(out, "",
-			subtle.Render("deal-kit no pisa estos archivos. Llevá el cambio al kit,"),
-			subtle.Render("o revertilo localmente, y volvé a intentar."), "",
+			subtle.Render("deal-kit no sobrescribe estos archivos. Llevar el cambio al kit,"),
+			subtle.Render("o revertir el archivo localmente, y volver a intentar."), "",
 			keys("esc", "volver", "q", "salir"))
 		return out
 	}

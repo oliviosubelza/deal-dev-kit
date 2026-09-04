@@ -15,7 +15,7 @@ import (
 func frontmatterBlock(data []byte) (map[string]string, error) {
 	lines := strings.Split(string(data), "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return nil, fmt.Errorf("no frontmatter block found (file must start with a %q fence)", "---")
+		return nil, fmt.Errorf("no se encontró un bloque de frontmatter (el archivo debe empezar con una línea %q)", "---")
 	}
 
 	fields := map[string]string{}
@@ -32,7 +32,7 @@ func frontmatterBlock(data []byte) (map[string]string, error) {
 		fields[strings.TrimSpace(key)] = trimQuotes(strings.TrimSpace(value))
 	}
 	if !closed {
-		return nil, fmt.Errorf("frontmatter block is not terminated (missing closing %q fence)", "---")
+		return nil, fmt.Errorf("el bloque de frontmatter no está cerrado (falta la línea %q de cierre)", "---")
 	}
 	return fields, nil
 }
@@ -61,14 +61,14 @@ func CheckFrontmatterName(data []byte, a Artifact) error {
 	want := a.InstallName()
 	fields, err := frontmatterBlock(data)
 	if err != nil {
-		return fmt.Errorf("artifact %q: %w", a.ID, err)
+		return fmt.Errorf("artefacto %q: %w", a.ID, err)
 	}
 	got, ok := fields["name"]
 	if !ok || got == "" {
-		return fmt.Errorf("artifact %q: frontmatter must declare name: %q", a.ID, want)
+		return fmt.Errorf("artefacto %q: el frontmatter debe declarar name: %q", a.ID, want)
 	}
 	if got != want {
-		return fmt.Errorf("artifact %q: frontmatter must declare name: %q, got %q", a.ID, want, got)
+		return fmt.Errorf("artefacto %q: el frontmatter debe declarar name: %q, se encontró %q", a.ID, want, got)
 	}
 	return nil
 }
@@ -83,7 +83,7 @@ func CheckDescriptionPresent(data []byte) error {
 		return fmt.Errorf("%w", err)
 	}
 	if value, ok := fields["description"]; !ok || value == "" {
-		return fmt.Errorf("frontmatter must declare a description")
+		return fmt.Errorf("el frontmatter debe declarar una description")
 	}
 	return nil
 }

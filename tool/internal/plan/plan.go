@@ -33,8 +33,8 @@ const (
 // more. An orphaned artifact reuses them: from the project's side the file is
 // gone from the kit either way, and one wording keeps the report uniform.
 const (
-	reasonRemoved       = "no longer part of this artifact"
-	reasonRemovedEdited = "no longer part of this artifact, but edited locally"
+	reasonRemoved       = "ya no forma parte de este artefacto"
+	reasonRemovedEdited = "ya no forma parte de este artefacto, pero fue editado localmente"
 )
 
 // Action is one filesystem mutation, or the decision not to make one.
@@ -86,7 +86,7 @@ func Build(in Input) (*Plan, error) {
 	for _, a := range in.Artifacts {
 		pairs, err := filePairs(in.KitDir, in.Roots, a)
 		if err != nil {
-			return nil, fmt.Errorf("artifact %q: %w", a.ID, err)
+			return nil, fmt.Errorf("artefacto %q: %w", a.ID, err)
 		}
 
 		produced := map[string]bool{}
@@ -251,12 +251,12 @@ func classify(in Input, a kit.Artifact, fp pair) (Action, error) {
 		// The file is there but deal-kit never wrote it. Refuse: it belongs to
 		// the project, and overwriting it would destroy work we cannot restore.
 		base.Kind = Blocked
-		base.Reason = "file exists but is not managed by deal-kit"
+		base.Reason = "el archivo existe pero no está gestionado por deal-kit"
 		return base, nil
 	}
 	if current != recorded {
 		base.Kind = Blocked
-		base.Reason = "edited locally since deal-kit wrote it"
+		base.Reason = "editado localmente desde que deal-kit lo escribió"
 		return base, nil
 	}
 	if current == srcHash {
@@ -294,7 +294,7 @@ func (p *Plan) Changes() []Action {
 // so a local edit is never lost to a partially applied sync.
 func (p *Plan) Apply(projectDir string, lock *lockfile.File) error {
 	if b := p.Blocked(); len(b) > 0 {
-		return fmt.Errorf("%d file(s) need attention before applying; run `deal-kit status` to see them", len(b))
+		return fmt.Errorf("%d archivo(s) requieren atención antes de aplicar; ejecutar `deal-kit status` para verlos", len(b))
 	}
 
 	for _, a := range p.Actions {

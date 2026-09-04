@@ -18,7 +18,7 @@ var version = "dev"
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		if errors.Is(err, cli.ErrAborted) {
-			fmt.Fprintln(os.Stderr, "aborted")
+			fmt.Fprintln(os.Stderr, "cancelado")
 			os.Exit(1)
 		}
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -41,24 +41,24 @@ func run(args []string) error {
 	cmd, ok := lookup(name)
 	if !ok {
 		usage()
-		return fmt.Errorf("unknown command %q", name)
+		return fmt.Errorf("comando desconocido %q", name)
 	}
 
 	fs := flag.NewFlagSet("deal-kit "+name, flag.ContinueOnError)
 	var (
-		kitDir  = fs.String("kit-dir", os.Getenv("DEAL_KIT_DIR"), "use a local kit checkout instead of fetching")
-		repo    = fs.String("repo", envOr("DEAL_KIT_REPO", kit.DefaultRepo), "kit repository to fetch from")
-		ref     = fs.String("ref", os.Getenv("DEAL_KIT_REF"), "kit tag, branch or SHA (default: newest kit-v* tag)")
-		offline = fs.Bool("offline", false, "use the cached kit without contacting the remote")
-		yes     = fs.Bool("yes", false, "apply without confirmation")
-		dryRun  = fs.Bool("dry-run", false, "print the plan and stop")
-		noDeps  = fs.Bool("no-deps", false, "do not run the package manager")
-		here    = fs.Bool("here", false, "use the current directory as the project root")
+		kitDir  = fs.String("kit-dir", os.Getenv("DEAL_KIT_DIR"), "usar un checkout local del kit en lugar de descargarlo")
+		repo    = fs.String("repo", envOr("DEAL_KIT_REPO", kit.DefaultRepo), "repositorio del kit desde donde descargar")
+		ref     = fs.String("ref", os.Getenv("DEAL_KIT_REF"), "tag, branch o SHA del kit (por defecto: el tag kit-v* más nuevo)")
+		offline = fs.Bool("offline", false, "usar el kit en caché sin contactar el remoto")
+		yes     = fs.Bool("yes", false, "aplicar sin confirmación")
+		dryRun  = fs.Bool("dry-run", false, "imprimir el plan y detenerse")
+		noDeps  = fs.Bool("no-deps", false, "no ejecutar el package manager")
+		here    = fs.Bool("here", false, "usar el directorio actual como raíz del proyecto")
 
 		flags commandFlags
 	)
-	fs.StringVar(&flags.typeOverride, "type", "", "force the project type instead of detecting it")
-	fs.BoolVar(&flags.check, "check", false, "self-update: report the latest version without installing it")
+	fs.StringVar(&flags.typeOverride, "type", "", "forzar el tipo de proyecto en lugar de detectarlo")
+	fs.BoolVar(&flags.check, "check", false, "self-update: informar la última versión sin instalarla")
 
 	if err := fs.Parse(permute(fs, rest)); err != nil {
 		return err
@@ -88,7 +88,7 @@ func envOr(name, fallback string) string {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "deal-kit %s\n\nUsage:\n  deal-kit <command> [flags]\n\nCommands:\n", version)
+	fmt.Fprintf(os.Stderr, "deal-kit %s\n\nUso:\n  deal-kit <comando> [opciones]\n\nComandos:\n", version)
 	for _, c := range visibleCommands() {
 		label := c.name
 		if c.name == "browse" {
@@ -103,16 +103,16 @@ func usage() {
 		fmt.Fprintf(os.Stderr, "  %-13s %s\n", label, c.summary)
 	}
 	fmt.Fprint(os.Stderr, `
-Flags:
-  --repo       Kit repository (or set DEAL_KIT_REPO)
-  --ref        Kit tag, branch or SHA (or set DEAL_KIT_REF)
-  --offline    Use the cached kit without contacting the remote
-  --kit-dir    Use a local kit checkout instead of fetching (or DEAL_KIT_DIR)
-  --type       Force the project type instead of detecting it
-  --here       Use the current directory as the project root
-  --dry-run    Print the plan without writing anything
-  --yes        Apply without confirmation
-  --no-deps    Skip the package manager install
-  --check      With self-update, only report what is available
+Opciones:
+  --repo       Repositorio del kit (o definir DEAL_KIT_REPO)
+  --ref        Tag, branch o SHA del kit (o definir DEAL_KIT_REF)
+  --offline    Usar el kit en caché sin contactar el remoto
+  --kit-dir    Usar un checkout local del kit en lugar de descargarlo (o DEAL_KIT_DIR)
+  --type       Forzar el tipo de proyecto en lugar de detectarlo
+  --here       Usar el directorio actual como raíz del proyecto
+  --dry-run    Imprimir el plan sin escribir nada
+  --yes        Aplicar sin confirmación
+  --no-deps    Omitir la instalación de dependencias
+  --check      Con self-update, sólo informar qué hay disponible
 `)
 }

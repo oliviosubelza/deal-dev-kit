@@ -104,7 +104,7 @@ func Install(projectDir string, m Manager, deps map[string]string, out io.Writer
 	}
 	args := InstallArgs(m, deps)
 	if _, err := exec.LookPath(args[0]); err != nil {
-		return fmt.Errorf("%s is not installed: %w", args[0], err)
+		return fmt.Errorf("%s no está instalado: %w", args[0], err)
 	}
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = projectDir

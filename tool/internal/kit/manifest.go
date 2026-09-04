@@ -40,7 +40,7 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		return nil, fmt.Errorf("kit.yaml: %w", err)
 	}
 	if raw.Version != 1 {
-		return nil, fmt.Errorf("kit.yaml: unsupported version %d (expected 1)", raw.Version)
+		return nil, fmt.Errorf("kit.yaml: versión %d no soportada (se esperaba 1)", raw.Version)
 	}
 	m := &Manifest{
 		ProjectTypes:   make(map[ProjectType]ProjectTypeSpec, len(raw.ProjectTypes)),
@@ -49,35 +49,35 @@ func ParseManifest(data []byte) (*Manifest, error) {
 	}
 	for name, spec := range raw.ProjectTypes {
 		if spec.Match == "" {
-			return nil, fmt.Errorf("kit.yaml: project type %q has no match pattern", name)
+			return nil, fmt.Errorf("kit.yaml: el tipo de proyecto %q no tiene patrón match", name)
 		}
 		m.ProjectTypes[ProjectType(name)] = ProjectTypeSpec{Match: spec.Match, Roots: spec.Roots}
 	}
 	seen := make(map[string]bool, len(raw.Artifacts))
 	for _, ra := range raw.Artifacts {
 		if ra.ID == "" {
-			return nil, fmt.Errorf("kit.yaml: artifact with no id")
+			return nil, fmt.Errorf("kit.yaml: hay un artefacto sin id")
 		}
 		if seen[ra.ID] {
-			return nil, fmt.Errorf("kit.yaml: duplicate artifact %q", ra.ID)
+			return nil, fmt.Errorf("kit.yaml: artefacto duplicado %q", ra.ID)
 		}
 		seen[ra.ID] = true
 		if ra.Src == "" {
-			return nil, fmt.Errorf("kit.yaml: artifact %q has no src", ra.ID)
+			return nil, fmt.Errorf("kit.yaml: el artefacto %q no tiene src", ra.ID)
 		}
 		switch ra.Type {
 		case "skill", "component", "config", "command", "agent":
 		default:
-			return nil, fmt.Errorf("kit.yaml: artifact %q has unknown type %q", ra.ID, ra.Type)
+			return nil, fmt.Errorf("kit.yaml: el artefacto %q tiene un type desconocido %q", ra.ID, ra.Type)
 		}
 		// A skill's, command's, or agent's destination is derived from its
 		// flattened ID, so declaring one would create a second, conflicting
 		// source of truth.
 		if (ra.Type == "skill" || ra.Type == "command" || ra.Type == "agent") && ra.Dest != "" {
-			return nil, fmt.Errorf("kit.yaml: %s %q must not declare dest", ra.Type, ra.ID)
+			return nil, fmt.Errorf("kit.yaml: %s %q no debe declarar dest", ra.Type, ra.ID)
 		}
 		if ra.Type == "component" && ra.Dest == "" {
-			return nil, fmt.Errorf("kit.yaml: component %q has no dest", ra.ID)
+			return nil, fmt.Errorf("kit.yaml: el component %q no tiene dest", ra.ID)
 		}
 		a := Artifact{
 			ID: ra.ID, Type: ra.Type, Group: ra.Group, Src: ra.Src, Dest: ra.Dest,
@@ -91,7 +91,7 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		for _, t := range ra.AppliesTo {
 			pt := ProjectType(t)
 			if _, ok := m.ProjectTypes[pt]; !ok {
-				return nil, fmt.Errorf("kit.yaml: artifact %q applies_to unknown project type %q", ra.ID, t)
+				return nil, fmt.Errorf("kit.yaml: el artefacto %q declara applies_to con un tipo de proyecto desconocido %q", ra.ID, t)
 			}
 			a.AppliesTo = append(a.AppliesTo, pt)
 		}
@@ -100,15 +100,15 @@ func ParseManifest(data []byte) (*Manifest, error) {
 	for name, ids := range raw.Profiles {
 		pt := ProjectType(name)
 		if _, ok := m.ProjectTypes[pt]; !ok {
-			return nil, fmt.Errorf("kit.yaml: profile %q is not a known project type", name)
+			return nil, fmt.Errorf("kit.yaml: el perfil %q no es un tipo de proyecto conocido", name)
 		}
 		for _, id := range ids {
 			a, ok := m.Artifact(id)
 			if !ok {
-				return nil, fmt.Errorf("kit.yaml: profile %q references unknown artifact %q", name, id)
+				return nil, fmt.Errorf("kit.yaml: el perfil %q referencia un artefacto desconocido %q", name, id)
 			}
 			if !a.Supports(pt) {
-				return nil, fmt.Errorf("kit.yaml: profile %q includes %q, which does not apply to %s", name, id, name)
+				return nil, fmt.Errorf("kit.yaml: el perfil %q incluye %q, que no aplica a %s", name, id, name)
 			}
 		}
 		m.Profiles[pt] = ids
@@ -116,11 +116,11 @@ func ParseManifest(data []byte) (*Manifest, error) {
 	for name, rules := range raw.ImportRewrites {
 		pt := ProjectType(name)
 		if _, ok := m.ProjectTypes[pt]; !ok {
-			return nil, fmt.Errorf("kit.yaml: import_rewrites names unknown project type %q", name)
+			return nil, fmt.Errorf("kit.yaml: import_rewrites nombra un tipo de proyecto desconocido %q", name)
 		}
 		for from := range rules {
 			if from == "" {
-				return nil, fmt.Errorf("kit.yaml: import_rewrites for %q has an empty prefix", name)
+				return nil, fmt.Errorf("kit.yaml: import_rewrites para %q tiene un prefijo vacío", name)
 			}
 		}
 		m.ImportRewrites[pt] = rules
@@ -129,7 +129,7 @@ func ParseManifest(data []byte) (*Manifest, error) {
 	for _, a := range m.Artifacts {
 		for _, req := range a.Requires {
 			if _, ok := m.Artifact(req); !ok {
-				return nil, fmt.Errorf("kit.yaml: artifact %q requires unknown artifact %q", a.ID, req)
+				return nil, fmt.Errorf("kit.yaml: el artefacto %q requiere un artefacto desconocido %q", a.ID, req)
 			}
 		}
 	}
@@ -185,17 +185,17 @@ func (m *Manifest) Resolve(pt ProjectType, ids []string) ([]Artifact, error) {
 			return nil
 		}
 		if inProgress[id] {
-			return fmt.Errorf("dependency cycle at %q", id)
+			return fmt.Errorf("ciclo de dependencias en %q", id)
 		}
 		a, ok := m.Artifact(id)
 		if !ok {
-			return fmt.Errorf("unknown artifact %q", id)
+			return fmt.Errorf("artefacto desconocido %q", id)
 		}
 		if !a.Supports(pt) {
 			if from != "" {
-				return fmt.Errorf("%q requires %q, which does not apply to project type %s", from, id, pt)
+				return fmt.Errorf("%q requiere %q, que no aplica al tipo de proyecto %s", from, id, pt)
 			}
-			return fmt.Errorf("%q does not apply to project type %s", id, pt)
+			return fmt.Errorf("%q no aplica al tipo de proyecto %s", id, pt)
 		}
 		inProgress[id] = true
 		for _, req := range a.Requires {

@@ -76,6 +76,24 @@ artifacts:
 			wantErr: "must not declare dest",
 		},
 		{
+			name: "command declaring dest",
+			yaml: `
+version: 1
+project_types: { web: { match: crm-deal-web } }
+artifacts:
+  - { id: web/generate-schema, type: command, src: commands/web/generate-schema.md, dest: somewhere }`,
+			wantErr: "must not declare dest",
+		},
+		{
+			name: "agent declaring dest",
+			yaml: `
+version: 1
+project_types: { web: { match: crm-deal-web } }
+artifacts:
+  - { id: backend/review-security, type: agent, src: agents/backend/review-security.md, dest: somewhere }`,
+			wantErr: "must not declare dest",
+		},
+		{
 			name: "unknown artifact type",
 			yaml: `
 version: 1
@@ -150,6 +168,27 @@ func TestParseManifestAcceptsValidInput(t *testing.T) {
 	}
 	if got := m.Profiles[Web]; len(got) != 2 {
 		t.Errorf("web profile = %v, want 2 entries", got)
+	}
+}
+
+func TestParseManifestAcceptsCommandAndAgentTypes(t *testing.T) {
+	m, err := ParseManifest([]byte(`
+version: 1
+project_types: { web: { match: crm-deal-web }, backend: { match: "crm-deal-*-service" } }
+artifacts:
+  - { id: web/generate-schema, type: command, applies_to: [web], src: commands/web/generate-schema.md }
+  - { id: backend/review-security, type: agent, applies_to: [backend], src: agents/backend/review-security.md }
+`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cmd, ok := m.Artifact("web/generate-schema")
+	if !ok || cmd.Type != "command" {
+		t.Fatalf("web/generate-schema: got %+v, ok=%v, want type command", cmd, ok)
+	}
+	agent, ok := m.Artifact("backend/review-security")
+	if !ok || agent.Type != "agent" {
+		t.Fatalf("backend/review-security: got %+v, ok=%v, want type agent", agent, ok)
 	}
 }
 
@@ -239,6 +278,29 @@ func TestSkillDir(t *testing.T) {
 	}
 }
 
+func TestCommandFile(t *testing.T) {
+	tests := []struct{ id, want string }{
+		{"web/generate-schema", ".claude/commands/generate-schema.md"},
+		{"backend/generate-schema", ".claude/commands/generate-schema.md"},
+		// A multi-segment id proves only the last segment is used, not the
+		// full flattened id.
+		{"web/tools/generate-schema", ".claude/commands/generate-schema.md"},
+	}
+	for _, tt := range tests {
+		a := Artifact{ID: tt.id, Type: "command"}
+		if got := a.CommandFile(); got != tt.want {
+			t.Errorf("CommandFile(%q) = %q, want %q", tt.id, got, tt.want)
+		}
+	}
+}
+
+func TestAgentFile(t *testing.T) {
+	a := Artifact{ID: "backend/review-security", Type: "agent"}
+	if got, want := a.AgentFile(), ".claude/agents/backend-review-security.md"; got != want {
+		t.Errorf("AgentFile() = %q, want %q", got, want)
+	}
+}
+
 func TestNPMDepsUnionsAcrossArtifacts(t *testing.T) {
 	m, _ := ParseManifest([]byte(validManifest))
 	resolved, _ := m.Resolve(Web, []string{"ui-kit/button"})
@@ -270,6 +332,52 @@ func ids(as []Artifact) []string {
 		out[i] = a.ID
 	}
 	return out
+}
+
+func TestDuplicateCommandLeafDetectsCollision(t *testing.T) {
+	m := &Manifest{
+		Artifacts: []Artifact{
+			{ID: "web/generate-schema", Type: "command", AppliesTo: []ProjectType{Web}},
+			// Different group, same leaf name, same project type: this is the
+			// collision the flattened id could never produce.
+			{ID: "web/tools/generate-schema", Type: "command", AppliesTo: []ProjectType{Web}},
+		},
+	}
+	first, second, ok := m.DuplicateCommandLeaf(Web)
+	if !ok {
+		t.Fatal("expected a collision, got none")
+	}
+	if first.ID != "web/generate-schema" || second.ID != "web/tools/generate-schema" {
+		t.Errorf("collision = (%q, %q), want (%q, %q)", first.ID, second.ID, "web/generate-schema", "web/tools/generate-schema")
+	}
+}
+
+func TestDuplicateCommandLeafIgnoresDifferentProjectTypes(t *testing.T) {
+	m := &Manifest{
+		Artifacts: []Artifact{
+			{ID: "web/generate-schema", Type: "command", AppliesTo: []ProjectType{Web}},
+			{ID: "backend/generate-schema", Type: "command", AppliesTo: []ProjectType{Backend}},
+		},
+	}
+	if _, _, ok := m.DuplicateCommandLeaf(Web); ok {
+		t.Error("expected no collision — the two commands apply to different project types")
+	}
+	if _, _, ok := m.DuplicateCommandLeaf(Backend); ok {
+		t.Error("expected no collision — the two commands apply to different project types")
+	}
+}
+
+func TestDuplicateCommandLeafIgnoresNonCommandArtifacts(t *testing.T) {
+	m := &Manifest{
+		Artifacts: []Artifact{
+			{ID: "web/generate-schema", Type: "command", AppliesTo: []ProjectType{Web}},
+			// Same leaf name, but a skill, not a command — must not collide.
+			{ID: "web/tools/generate-schema", Type: "skill", AppliesTo: []ProjectType{Web}},
+		},
+	}
+	if _, _, ok := m.DuplicateCommandLeaf(Web); ok {
+		t.Error("expected no collision — the second artifact is not a command")
+	}
 }
 
 func TestGroupDefaultsToTheIDPrefix(t *testing.T) {

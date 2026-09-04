@@ -66,14 +66,15 @@ func ParseManifest(data []byte) (*Manifest, error) {
 			return nil, fmt.Errorf("kit.yaml: artifact %q has no src", ra.ID)
 		}
 		switch ra.Type {
-		case "skill", "component", "config":
+		case "skill", "component", "config", "command", "agent":
 		default:
 			return nil, fmt.Errorf("kit.yaml: artifact %q has unknown type %q", ra.ID, ra.Type)
 		}
-		// A skill's destination is derived from its flattened ID, so declaring
-		// one would create a second, conflicting source of truth.
-		if ra.Type == "skill" && ra.Dest != "" {
-			return nil, fmt.Errorf("kit.yaml: skill %q must not declare dest", ra.ID)
+		// A skill's, command's, or agent's destination is derived from its
+		// flattened ID, so declaring one would create a second, conflicting
+		// source of truth.
+		if (ra.Type == "skill" || ra.Type == "command" || ra.Type == "agent") && ra.Dest != "" {
+			return nil, fmt.Errorf("kit.yaml: %s %q must not declare dest", ra.Type, ra.ID)
 		}
 		if ra.Type == "component" && ra.Dest == "" {
 			return nil, fmt.Errorf("kit.yaml: component %q has no dest", ra.ID)
@@ -220,8 +221,44 @@ func NPMDeps(artifacts []Artifact) map[string]string {
 	return deps
 }
 
+// DuplicateCommandLeaf reports the first two installable command artifacts
+// for the given project type whose leaf name collides, or ok=false if none
+// collide. Leaf names can collide where flattened ids cannot: two commands
+// declared under different groups that both apply to the same project type
+// would otherwise silently overwrite each other's file at install time.
+func (m *Manifest) DuplicateCommandLeaf(pt ProjectType) (first, second Artifact, ok bool) {
+	seen := make(map[string]Artifact)
+	for _, a := range m.Artifacts {
+		if a.Type != "command" || !a.Supports(pt) {
+			continue
+		}
+		leaf := a.LeafName()
+		if prev, exists := seen[leaf]; exists {
+			return prev, a, true
+		}
+		seen[leaf] = a
+	}
+	return Artifact{}, Artifact{}, false
+}
+
 // SkillDir is the destination directory for a skill, relative to the project
 // root: .claude/skills/<flattened-id>.
 func (a Artifact) SkillDir() string {
 	return path.Join(".claude", "skills", a.InstallName())
+}
+
+// CommandFile is the destination file for a command, relative to the project
+// root: .claude/commands/<leaf-name>.md. Unlike SkillDir and AgentFile, this
+// uses the artifact's leaf name, not its flattened id: a command's filename
+// is the string a human types to invoke it (e.g. "/generate-schema"), and a
+// group prefix like "web-" would contradict that string everywhere it is
+// already documented and typed.
+func (a Artifact) CommandFile() string {
+	return path.Join(".claude", "commands", a.LeafName()+".md")
+}
+
+// AgentFile is the destination file for an agent, relative to the project
+// root: .claude/agents/<flattened-id>.md.
+func (a Artifact) AgentFile() string {
+	return path.Join(".claude", "agents", a.InstallName()+".md")
 }

@@ -40,6 +40,14 @@ func skillArtifact() kit.Artifact {
 	return kit.Artifact{ID: "web/ui", Type: "skill", Src: "skills/web/ui"}
 }
 
+func commandArtifact() kit.Artifact {
+	return kit.Artifact{ID: "web/generate-schema", Type: "command", Src: "commands/web/generate-schema.md"}
+}
+
+func agentArtifact() kit.Artifact {
+	return kit.Artifact{ID: "backend/review-security", Type: "agent", Src: "agents/backend/review-security.md"}
+}
+
 func kindOf(p *Plan, path string) (Kind, string) {
 	for _, a := range p.Actions {
 		if a.Path == path {
@@ -87,6 +95,40 @@ func TestSkillDestinationIsDerivedFromFlattenedID(t *testing.T) {
 		t.Fatal(err)
 	}
 	if k, r := kindOf(p, ".claude/skills/web-ui/SKILL.md"); k != Create {
+		t.Errorf("kind = %q (%s), want create at the flattened path", k, r)
+	}
+}
+
+func TestCommandDestinationIsDerivedFromLeafName(t *testing.T) {
+	kitDir, projectDir := fixture(t, map[string]string{
+		"commands/web/generate-schema.md": "---\ndescription: writes a Zod schema\n---\n",
+	})
+
+	p, err := Build(Input{
+		Artifacts: []kit.Artifact{commandArtifact()},
+		Lock:      &lockfile.File{}, KitDir: kitDir, ProjectDir: projectDir, Roots: roots,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k, r := kindOf(p, ".claude/commands/generate-schema.md"); k != Create {
+		t.Errorf("kind = %q (%s), want create at the leaf-name path", k, r)
+	}
+}
+
+func TestAgentDestinationIsDerivedFromFlattenedID(t *testing.T) {
+	kitDir, projectDir := fixture(t, map[string]string{
+		"agents/backend/review-security.md": "---\nname: backend-review-security\n---\n",
+	})
+
+	p, err := Build(Input{
+		Artifacts: []kit.Artifact{agentArtifact()},
+		Lock:      &lockfile.File{}, KitDir: kitDir, ProjectDir: projectDir, Roots: roots,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k, r := kindOf(p, ".claude/agents/backend-review-security.md"); k != Create {
 		t.Errorf("kind = %q (%s), want create at the flattened path", k, r)
 	}
 }

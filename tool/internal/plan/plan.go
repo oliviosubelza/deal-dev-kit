@@ -141,8 +141,13 @@ func filePairs(kitDir string, roots map[string]string, a kit.Artifact) ([]pair, 
 	}
 
 	destBase := a.Dest
-	if a.Type == "skill" {
+	switch a.Type {
+	case "skill":
 		destBase = a.SkillDir()
+	case "command":
+		destBase = a.CommandFile()
+	case "agent":
+		destBase = a.AgentFile()
 	}
 	resolved, err := paths.Resolve(destBase, roots)
 	if err != nil {

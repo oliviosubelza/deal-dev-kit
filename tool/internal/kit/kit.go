@@ -2,7 +2,10 @@
 // its kit.yaml manifest into a set of installable artifacts.
 package kit
 
-import "strings"
+import (
+	"path"
+	"strings"
+)
 
 // ProjectType is one of the three CRM DEAL repository shapes. The polyrepo has
 // one repository per project, and destinations differ per type.
@@ -17,7 +20,7 @@ const (
 // Artifact is one installable unit declared in kit.yaml.
 type Artifact struct {
 	ID        string            // "web/ui", "ui-kit/data-table"
-	Type      string            // "skill" | "component" | "config"
+	Type      string            // "skill" | "component" | "config" | "command" | "agent"
 	Group     string            // display grouping in the browser
 	AppliesTo []ProjectType     // project types this artifact is valid for
 	Src       string            // path inside the kit repo
@@ -53,6 +56,18 @@ type ProjectTypeSpec struct {
 // `name` in the skill's SKILL.md frontmatter.
 func (a Artifact) InstallName() string {
 	return strings.ReplaceAll(a.ID, "/", "-")
+}
+
+// LeafName is the last segment of the artifact's ID, dropping the group
+// prefix entirely: "web/generate-schema" -> "generate-schema". Placed beside
+// InstallName because both derive an install-facing string from the ID, and
+// keeping them together documents that installation naming has two distinct
+// rules (flatten vs. leaf) depending on artifact type — not one rule with an
+// exception. Used by CommandFile, since a command's filename is the string a
+// human types to invoke it, unlike a skill (loaded by description) or an
+// agent (referenced by the orchestrator).
+func (a Artifact) LeafName() string {
+	return path.Base(a.ID)
 }
 
 // Supports reports whether the artifact may be installed in a project of the

@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/execenv"
 )
 
 // DefaultRepo is the kit repository the CLI reads from.
@@ -158,28 +160,8 @@ func git(dir string, args ...string) (string, error) {
 	return string(out), err
 }
 
-// leakedGitVars are the environment variables that would redirect a git
-// command away from the directory we passed with -C.
-var leakedGitVars = []string{
-	"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
-	"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-	"GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES", "GIT_GRAFT_FILE",
-	"GIT_REPLACE_REF_BASE", "GIT_PREFIX",
-}
-
-func sanitizedEnv() []string {
-	drop := make(map[string]bool, len(leakedGitVars))
-	for _, k := range leakedGitVars {
-		drop[k] = true
-	}
-	env := os.Environ()
-	out := make([]string, 0, len(env)+1)
-	for _, kv := range env {
-		if i := strings.IndexByte(kv, '='); i > 0 && drop[kv[:i]] {
-			continue
-		}
-		out = append(out, kv)
-	}
-	// Never stop for an interactive credential prompt inside a TUI.
-	return append(out, "GIT_TERMINAL_PROMPT=0")
-}
+// sanitizedEnv is the environment every git call here runs with. The variable
+// list and the reason it exists live in internal/execenv: it is security
+// relevant — it stops an inherited GIT_DIR from redirecting the fetch — and a
+// second copy of it would drift the first time only one was fixed.
+func sanitizedEnv() []string { return execenv.Sanitized() }

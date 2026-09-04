@@ -25,6 +25,7 @@ const (
 	screenSkills
 	screenComponents
 	screenStatus
+	screenEngram
 	screenPlan
 	screenApplied
 	screenFailed
@@ -202,6 +203,8 @@ func (m Model) menu() []menuEntry {
 		// No "Actualizar el kit" entry: "u" already updates from the status
 		// screen, and its legend says so. A second door to the same action
 		// only costs a menu line, and the menu has to stay scannable.
+		{title: "Engram para Claude Code", target: screenEngram,
+			note: engramNote(m.cfg.Engram)},
 	}
 	return append(entries, menuEntry{title: "Salir", quit: true})
 }
@@ -306,6 +309,25 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen = screenMenu
 		case "u":
 			return m, m.buildPlanFor(m.installedIDs())
+		}
+	case screenEngram:
+		switch key {
+		// Only "y" asks for an install, for the same reason it is the only
+		// key that applies a plan: enter is what navigates INTO this screen,
+		// and on Windows the Enter that launched the process leaks in, so
+		// accepting it as consent would install without a decision.
+		case "y":
+			if m.engramBlocked() != "" {
+				return m, nil
+			}
+			m.engramIntent = true
+			m.quitting = true
+			return m, tea.Quit
+		case "enter", "esc", "left", "h", "n":
+			m.screen = screenMenu
+		case "q":
+			m.quitting = true
+			return m, tea.Quit
 		}
 	case screenPlan:
 		switch key {
@@ -617,6 +639,47 @@ func (m Model) Result() (applied bool, deps map[string]string) {
 // "did a kit sync happen", and overloading it would make one boolean mean two
 // unrelated things.
 func (m Model) EngramIntent() bool { return m.engramIntent }
+
+// engramBlocked is why "y" will not install, or "" when it will. Deciding it
+// in one place keeps the key handler and the screen from disagreeing.
+func (m Model) engramBlocked() string {
+	switch {
+	case m.cfg.DryRun:
+		return "--dry-run: no se ejecuta ningún comando"
+	case m.cfg.Engram.State == engram.StateClaudeMissing:
+		return "no se encontró claude en el PATH"
+	case m.cfg.Engram.State == engram.StateMarketplaceConflict:
+		return "hay otro marketplace llamado engram; deal-kit no lo toca"
+	case m.cfg.Engram.State == engram.StateUnknown:
+		return "no se pudo determinar el estado del plugin"
+	case m.cfg.EngramPlan.Empty():
+		return "no hay nada que hacer"
+	case m.cfg.Offline && m.cfg.EngramPlan.NeedsDownload():
+		return "--offline: instalar requiere descargar el marketplace"
+	}
+	return ""
+}
+
+// engramNote is the one-line menu summary of the plugin's state.
+func engramNote(st engram.Status) string {
+	switch st.State {
+	case engram.StateClaudeMissing:
+		return "claude no está instalado"
+	case engram.StateMarketplaceConflict:
+		return "conflicto: revisar antes de instalar"
+	case engram.StateMarketplaceMissing, engram.StatePluginMissing:
+		return "memoria persistente · sin instalar"
+	case engram.StatePluginDisabled:
+		return "instalado pero deshabilitado"
+	case engram.StateReady:
+		if st.Version != "" {
+			return "instalado y habilitado · " + st.Version
+		}
+		return "instalado y habilitado"
+	default:
+		return "no se pudo consultar el estado"
+	}
+}
 
 // Err returns a failure from planning or applying.
 func (m Model) Err() error { return m.err }

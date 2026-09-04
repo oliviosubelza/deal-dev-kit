@@ -41,19 +41,28 @@ import_rewrites:
 
 # What `deal-kit init` installs for each project type.
 profiles:
-  backend: [general/conventions, backend/architecture, backend/connections]
-  web:     [general/conventions, web/architecture, web/ui, ui-kit/base, ui-kit/theme]
-  mobile:  [general/conventions, mobile/architecture, mobile/offline]
+  backend: [general/conventions, general/security, backend/architecture, backend/connections, backend/generate-schema, backend/review-security]
+  web:     [general/conventions, general/security, web/architecture, web/ui, ui-kit/base, ui-kit/theme, web/generate-schema]
+  mobile:  [general/conventions, general/security, mobile/architecture, mobile/offline, mobile/generate-schema]
 
 artifacts:
   # ---- skills ----
   - { id: general/conventions,  type: skill, applies_to: [backend, web, mobile], src: skills/general/conventions, group: "Team conventions" }
+  - { id: general/security,     type: skill, applies_to: [backend, web, mobile], src: skills/general/security, group: "Team conventions" }
   - { id: backend/architecture, type: skill, applies_to: [backend], src: skills/backend/architecture, group: "Backend" }
   - { id: backend/connections,  type: skill, applies_to: [backend], src: skills/backend/connections, group: "Backend" }
   - { id: web/architecture,     type: skill, applies_to: [web],     src: skills/web/architecture, group: "Web" }
   - { id: web/ui,               type: skill, applies_to: [web],     src: skills/web/ui, group: "Web" }
   - { id: mobile/architecture,  type: skill, applies_to: [mobile],  src: skills/mobile/architecture, group: "Mobile" }
   - { id: mobile/offline,       type: skill, applies_to: [mobile],  src: skills/mobile/offline, group: "Mobile" }
+
+  # ---- commands ----
+  - { id: backend/generate-schema, type: command, applies_to: [backend], src: commands/backend/generate-schema.md, group: "Backend" }
+  - { id: web/generate-schema,     type: command, applies_to: [web],     src: commands/web/generate-schema.md, group: "Web" }
+  - { id: mobile/generate-schema,  type: command, applies_to: [mobile],  src: commands/mobile/generate-schema.md, group: "Mobile" }
+
+  # ---- agents ----
+  - { id: backend/review-security, type: agent, applies_to: [backend], src: agents/backend/review-security.md, group: "Backend" }
 
   # ---- ui-kit (web only: mobile uses React Native Paper) ----
   # Generated from the components' own imports: `requires` mirrors

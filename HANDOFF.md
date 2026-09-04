@@ -1,7 +1,7 @@
 # deal-dev-kit — estado y pendientes
 
 Documento de traspaso. No versionado (está en `.gitignore`).
-Última actualización: 2026-09-03.
+Última actualización: 2026-09-04.
 
 ---
 
@@ -38,26 +38,13 @@ que es de pago.
 
 ---
 
-## 2. URGENTE: `kit-v0.2.0` está publicado con 6 skills en TODO
+## 2. RESUELTO: `kit-v0.2.0` ya apunta a las 7 skills escritas
 
-Se tageó antes de commitear. Hoy el tag contiene:
-
-```
-ok     web/ui (287 líneas)
-TODO   backend/connections, backend/architecture, web/architecture,
-TODO   mobile/architecture, mobile/offline, general/conventions
-```
-
-Las 7 están escritas y con tests verdes en el working tree. Falta:
-
-```bash
-git add -A && git commit -m "feat(skills): write the seven skills from the architecture briefing"
-git push
-git tag -d kit-v0.2.0 && git push origin :kit-v0.2.0
-git tag kit-v0.2.0 && git push origin kit-v0.2.0
-```
-
-Retagear es seguro: nadie pineó `kit-v0.2.0` todavía.
+Esta sección decía que el tag estaba publicado con 6 skills en `TODO`. Verificado
+directamente (`git rev-list -n 1 kit-v0.2.0`, `git ls-remote --tags origin`): **`kit-v0.2.0`
+apunta al commit `03af755` — "feat(skills): write the seven skills from the architecture
+briefing" — tanto local como en `origin`.** Ese commit escribe las 7 skills y elimina
+`general/pr-workflow` (ver §5). No hace falta retagear.
 
 ---
 
@@ -196,6 +183,7 @@ No relitigar sin motivo nuevo.
 | `ui-kit/base` requiere `web/ui` | Todo componente depende de `base`, así que instalar cualquier componente arrastra la skill del catálogo. |
 | Solo lo que la presentación afirma | Sin inventar convenciones, sin marcar huecos. |
 | `general/pr-workflow` eliminada | Todo lo que diría ya está en `general/conventions`. |
+| `command` instala por nombre "leaf", no aplanado | El nombre de archivo de un command ES lo que un humano escribe (`/generate-schema`); un prefijo de grupo lo contradice y el equipo de collections ya documentó `/generate-schema` sin prefijo. `skill` y `agent` sí se quedan aplanados: nadie tipea el nombre de una skill (la carga el modelo por descripción) ni el de un agent (lo referencia el orquestador). Ver §9. |
 
 ---
 
@@ -280,5 +268,103 @@ convención de nombres de archivo, alias de imports, dónde van los tests, si se
 barrels, y cómo se comparten físicamente los schemas Zod.
 
 La presentación menciona dos documentos más detallados —"Estructura de Carpetas" y
-"Seguridad de la Arquitectura"— que **no están en la máquina**. Se verificaron los 25
-PDFs de Downloads, los 5 `.docx` y la carpeta `documentation/`.
+"Seguridad de la Arquitectura"—. **Corrección: el de seguridad SÍ está en la máquina.**
+`~/Downloads/DEAL_Security_Architecture_Review*.pdf` (tres copias idénticas, la más
+vieja del 2026-08-14) contiene la revisión de arquitectura de seguridad, autor Marcel Del
+Castillo (Gerente de Sistemas y BI). Su contenido ya alimentó la skill `general-security`
+(§9). "Estructura de Carpetas" sigue sin aparecer.
+
+---
+
+## 9. `command` / `agent` como nuevos tipos de artefacto (agent-artifact-taxonomy)
+
+Extiende el modelo de artefactos de `skill|component|config` a también `command|agent`.
+Los tres tipos "flat" (`skill`, `command`, `agent`) comparten la regla de no declarar
+`dest` propio, pero **no** comparten cómo se deriva el nombre de archivo — ver la
+corrección más abajo.
+
+- `type: command` → instala en `.claude/commands/<leaf>.md`, donde `<leaf>` es solo el
+  último segmento del id (**corregido**: antes era el id aplanado completo — ver
+  "Corrección: nombre de archivo de un command" abajo). Frontmatter solo necesita
+  `description` (no hay `name`: el nombre lo da el archivo).
+- `type: agent` → instala en `.claude/agents/<id-aplanado>.md`. Frontmatter necesita
+  `name` (debe matchear el id aplanado, igual que una skill), `description`, `model`,
+  `tools`.
+- Ambos, igual que las skills, se validan contra el `kit.yaml` real en
+  `repo_manifest_test.go`, ahora generalizado a un `switch` sobre los tres tipos con
+  frontmatter (antes solo cubría `skill`).
+- `tool/internal/kit/frontmatter.go` (nuevo): `CheckFrontmatterName` y
+  `CheckDescriptionPresent`, extraídos del chequeo que antes vivía inline en
+  `repo_manifest_test.go`. Parsean solo el bloque `---`...`---` inicial (no todo el
+  archivo) y comparan por igualdad, no por substring — la versión anterior aceptaba un
+  nombre más largo con el prefijo correcto, o un `name:`/`description:` en cualquier
+  parte del cuerpo. También aceptan un valor citado (`name: "web-ui"`).
+
+Contenido de la primera porción:
+
+- `skills/general/security/SKILL.md` (`general-security`, applies_to backend/web/mobile) —
+  reglas de la revisión de arquitectura de seguridad (§8): TTL de token, scopes
+  `verb:resource`, rotación de refresh, allowlist CORS, geoblocking, rate limit, masking
+  de PII, TLS/AES-256, y que el API Gateway es quien las hace cumplir. No repite dónde
+  se guarda el token (eso ya lo dicen `web-architecture` y `mobile-architecture`).
+- `commands/{backend,web,mobile}/generate-schema.md` — backend escribe el DTO en
+  `interface/dto/` con `nestjs-zod`; web y mobile escriben el schema en
+  `features/<feature>/schemas/`. Ninguno copia/sincroniza entre repos: eso sigue sin
+  definirse (§4.3).
+- `agents/backend/review-security.md` (`backend-review-security`) — agente de solo
+  lectura (`Read, Grep, Glob`). El cuerpo es un puntero: lee
+  `.claude/skills/general-security/SKILL.md` primero y audita contra eso. No repite
+  ningún valor concreto de la skill, y no emite un token tipo `STATUS: FAILED_*` — corre
+  interactivo, no en CI.
+
+Los cinco quedaron cableados en `kit.yaml`: `general/security` en los tres perfiles,
+`backend/generate-schema` + `backend/review-security` en `backend`, `web/generate-schema`
+en `web`, `mobile/generate-schema` en `mobile`.
+
+**Verificación**: `go test ./... -count=1` (10/10 paquetes), `gofmt -l .` limpio,
+`go vet ./...` limpio, `internal/cli` sin diff. E2E manual **solo pudo probarse
+parcialmente**: el único proyecto de prueba disponible es
+`/mnt/c/SoftwareDevelopment/deal-test/crm-deal-web` (perfil `web`), y su
+`deal-kit.lock` quedó con una entrada obsoleta (`general/pr-workflow`, eliminada en
+`03af755`, ver §5) que hace que `status`/`update` fallen con `unknown artifact` — un bug
+preexistente y no relacionado a este cambio, no reparado porque el fixture queda fuera
+del alcance de edición de esta sesión. **No hay proyecto de prueba `backend` ni
+`mobile`.** Ningún perfil quedó verificado de punta a punta contra un binario real en
+esta sesión; solo verificado vía tests Go y por inspección.
+
+Sin operaciones de git: todo queda sin commitear en el working tree, apilado sobre WU1
+(tipos `command`/`agent`, `frontmatter.go`, `plan.go`). PR 1 = plomería de WU1; PR 2 =
+este contenido + wiring de `kit.yaml`, sobre PR 1 (`stacked-to-main`).
+
+### Corrección: nombre de archivo de un `command`
+
+`CommandFile()` usaba `InstallName()` (id aplanado), igual que `SkillDir()`/`AgentFile()`.
+Instalar de verdad `web/generate-schema` en el proyecto de prueba mostró el problema: el
+archivo quedaba en `.claude/commands/web-generate-schema.md`, invocable como
+`/web-generate-schema` — contradice `/generate-schema`, que es lo que el equipo de
+collections ya documentó y tipea. El binario real hizo evidente lo que el test suite
+completo, `gofmt` y `go vet` no detectaron: ningún test afirmaba qué escribiría un
+humano.
+
+- `CommandFile()` ahora usa `LeafName()` (nuevo, en `kit.go`, junto a `InstallName()`):
+  último segmento del id, sin prefijo de grupo. `SkillDir()`/`AgentFile()` **no**
+  cambiaron — se quedan aplanados a propósito.
+- Nueva invariante en `repo_manifest_test.go`, contra el `kit.yaml` real: dentro de un
+  mismo project type, ningún par de commands instalables puede compartir `LeafName()`
+  (el prefijo de grupo ya no los distingue). Hoy se cumple trivialmente (un
+  `generate-schema` por tipo); `TestDuplicateCommandLeaf*` en `manifest_test.go` prueba
+  que la invariante sí dispara, con un par sintético que colisiona a propósito — no se
+  tocó el `kit.yaml` real para probarlo.
+- Migración observada contra `/mnt/c/SoftwareDevelopment/deal-test/crm-deal-web`: el
+  `deal-kit.lock` tenía `web/generate-schema → .claude/commands/web-generate-schema.md`
+  (ruta vieja). Tras el cambio, `deal-kit status` marcó ese artefacto `OUTDATED` (no
+  huérfano silencioso) y `deal-kit add web/generate-schema --dry-run` planeó
+  `create .claude/commands/generate-schema.md` + `delete .claude/commands/web-generate-schema.md`
+  automáticamente — la ruta de limpieza que `plan.Build` ya tenía para "el artefacto ya
+  no produce este archivo, y el proyecto no lo editó localmente" cubre un cambio de
+  destino sin intervención manual. Se aplicó de verdad (`--yes --no-deps`) en ese
+  fixture de scratch para completar la verificación: el archivo viejo se borró, el nuevo
+  quedó en `.claude/commands/generate-schema.md`, y `status` volvió a `ok`.
+- `CommandFile()` y sus tests (`manifest_test.go`, `plan_test.go`) van en PR 1 (plomería,
+  sin contenido). La invariante en `repo_manifest_test.go` va en PR 2 (corre contra el
+  `kit.yaml` real, que es contenido de PR 2).

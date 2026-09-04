@@ -44,33 +44,69 @@ func TestRepositoryManifestIsValid(t *testing.T) {
 		}
 	}
 
-	// A skill's frontmatter name must match its flattened install name, or it
-	// lands in a directory the agent looks up under a different name.
+	// Every skill, command and agent artifact's frontmatter must be valid, or
+	// it lands under one identity but is looked up (or invoked) under
+	// another. Skills and agents declare `name`; commands have no `name`
+	// field (their filename IS the identity) so they only need `description`.
 	for _, a := range m.Artifacts {
-		if a.Type != "skill" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(root, a.Src, "SKILL.md"))
-		if err != nil {
-			t.Errorf("artifact %q: %v", a.ID, err)
-			continue
-		}
-		want := "name: " + a.InstallName()
-		if !contains(string(data), want) {
-			t.Errorf("artifact %q: SKILL.md frontmatter must declare %q", a.ID, want)
-		}
-	}
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (func() bool {
-		for i := 0; i+len(sub) <= len(s); i++ {
-			if s[i:i+len(sub)] == sub {
-				return true
+		switch a.Type {
+		case "skill":
+			data, err := os.ReadFile(filepath.Join(root, a.Src, "SKILL.md"))
+			if err != nil {
+				t.Errorf("artifact %q: %v", a.ID, err)
+				continue
+			}
+			if err := CheckFrontmatterName(data, a); err != nil {
+				t.Error(err)
+			}
+		case "agent":
+			data, err := os.ReadFile(filepath.Join(root, a.Src))
+			if err != nil {
+				t.Errorf("artifact %q: %v", a.ID, err)
+				continue
+			}
+			if err := CheckFrontmatterName(data, a); err != nil {
+				t.Error(err)
+			}
+		case "command":
+			data, err := os.ReadFile(filepath.Join(root, a.Src))
+			if err != nil {
+				t.Errorf("artifact %q: %v", a.ID, err)
+				continue
+			}
+			if err := CheckDescriptionPresent(data); err != nil {
+				t.Errorf("artifact %q: %v", a.ID, err)
 			}
 		}
-		return false
-	})()
+	}
+
+	// Leaf names can collide where flattened ids cannot: two commands in
+	// different groups that both apply to the same project type would
+	// silently overwrite each other's installed file. This holds trivially
+	// today (one generate-schema per project type) — TestDuplicateCommandLeaf*
+	// in manifest_test.go proves the check itself fires on a synthetic
+	// colliding pair, so this loop is not the only place the invariant is
+	// exercised.
+	for pt := range m.ProjectTypes {
+		if first, second, collides := m.DuplicateCommandLeaf(pt); collides {
+			t.Errorf("project type %q: commands %q and %q both install as %q", pt, first.ID, second.ID, second.LeafName())
+		}
+	}
+
+	// The generalized loop above only exercises artifacts kit.yaml actually
+	// declares. Assert the first-slice command/agent artifacts are wired in,
+	// so the frontmatter checks above are proven against real content, not
+	// just left dead until someone remembers to add them.
+	wantMinTypes := map[string]int{"command": 3, "agent": 1}
+	gotTypes := map[string]int{}
+	for _, a := range m.Artifacts {
+		gotTypes[a.Type]++
+	}
+	for typ, min := range wantMinTypes {
+		if gotTypes[typ] < min {
+			t.Errorf("expected at least %d artifact(s) of type %q wired into kit.yaml, got %d", min, typ, gotTypes[typ])
+		}
+	}
 }
 
 func ids2(as []Artifact) []string {

@@ -44,8 +44,10 @@ func renderPlan(w io.Writer, p *plan.Plan, manager pm.Manager, hasManager, noDep
 	}
 }
 
-// renderStatus prints one line per installed artifact.
-func renderStatus(w io.Writer, artifacts []kit.Artifact, p *plan.Plan) {
+// renderStatus prints one line per installed artifact. orphans are ids the
+// lockfile records that the manifest no longer declares: they have no
+// artifact to report against, so they are named on their own terms.
+func renderStatus(w io.Writer, artifacts []kit.Artifact, orphans []string, p *plan.Plan) {
 	worst := map[string]plan.Kind{}
 	detail := map[string]string{}
 	for _, a := range p.Actions {
@@ -55,13 +57,25 @@ func renderStatus(w io.Writer, artifacts []kit.Artifact, p *plan.Plan) {
 		}
 	}
 
-	ids := make([]string, 0, len(artifacts))
+	ids := make([]string, 0, len(artifacts)+len(orphans))
 	for _, a := range artifacts {
 		ids = append(ids, a.ID)
+	}
+	orphaned := make(map[string]bool, len(orphans))
+	for _, id := range orphans {
+		orphaned[id] = true
+		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 
 	for _, id := range ids {
+		if orphaned[id] {
+			// An orphan whose files are already gone has no path to name, and
+			// a dangling column reads as truncated output.
+			line := fmt.Sprintf("  %-24s ORPHANED  %s", id, detail[id])
+			fmt.Fprintln(w, strings.TrimRight(line, " "))
+			continue
+		}
 		switch worst[id] {
 		case plan.Blocked:
 			fmt.Fprintf(w, "  %-24s MODIFIED  %s\n", id, detail[id])

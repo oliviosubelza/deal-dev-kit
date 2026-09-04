@@ -78,26 +78,31 @@ Flags: `--repo --ref --offline --kit-dir --type --here --dry-run --yes --no-deps
 | Paquete | Cobertura |
 |---|---|
 | `paths` | 100% |
-| `plan` | 90.7% |
+| `plan` | 91.7% |
+| `kit` | 88.9% |
 | `lockfile` | 88.9% |
 | `doctor` | 88.2% |
-| `kit` | 85.0% |
-| `tui` | 78.6% |
+| `tui` | 79.4% |
 | `selfupdate` | 73.2% |
 | `pm` | 70.3% |
-| **`cli`** | **3.6%** ← deuda |
+| `cmd/deal-kit` | 43.2% |
+| **`cli`** | **37.9%** ← sigue siendo la más baja |
 
 ---
 
 ## 4. Pendientes
 
-### 4.1 Deuda de tests: `internal/cli` en 3.6%
+### 4.1 Deuda de tests: `internal/cli` en 37.9%
 
-`new.go`, `selfupdate.go` y buena parte de `cli.go` no tienen tests. Es justo el código
-que **ejecuta comandos externos y escribe en directorios del usuario**. Solo probado a
-mano. Es lo que atacaría primero.
+Era 3.6%. Subió al arreglar los artefactos huérfanos del lockfile, que obligó a testear
+`Status`, `Init`, `Add` y `Update` de punta a punta (`orphan_test.go`).
 
-Lo que sí tiene tests: `ProjectRoot` (9 casos, en `cli_test.go`).
+Sigue siendo el paquete más bajo, y **`new.go` y `selfupdate.go` siguen sin tests**. Es
+justo el código que ejecuta comandos externos y reemplaza el propio binario, probado
+solo a mano. Es lo que atacaría primero.
+
+Lo que sí tiene tests: `ProjectRoot` (9 casos, en `cli_test.go`) y el ciclo completo de
+huérfanos en `orphan_test.go`.
 
 ### 4.2 `deal-kit adopt`
 
@@ -107,6 +112,17 @@ tocarlos (correcto), pero no hay forma de decirle "estos son tuyos, registralos"
 
 Debería: comparar el archivo local con el del kit, y si son idénticos, registrarlo en el
 lockfile sin reescribir nada. Escenario garantizado cuando migren proyectos existentes.
+
+**Resuelto aparte, no confundir**: el caso en que el lockfile referencia un artefacto que
+`kit.yaml` ya no declara. Eso rompía `status` y `update` con `unknown artifact`, y ya está
+arreglado: el artefacto se reporta `ORPHANED` y `update` borra sus archivos y su entrada,
+salvo que hayan divergido. Lo de arriba sigue abierto y es distinto — ahí el lockfile no
+existe o nunca registró esos archivos.
+
+**Misma clase, todavía abierto**: un artefacto que `kit.yaml` **sí** declara, pero cuyo
+`applies_to` dejó de cubrir el tipo del proyecto, aborta con `"%q does not apply to project
+type %s"`. Sacar `web` del `applies_to` de un artefacto instalado reproduce el mismo callejón
+sin salida. Quedó fuera de la política decidida para huérfanos.
 
 ### 4.3 Cómo se comparten los schemas Zod entre web y móvil
 

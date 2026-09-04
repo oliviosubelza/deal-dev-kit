@@ -404,3 +404,116 @@ func TestBuildRejectsADestinationThatEscapesTheProject(t *testing.T) {
 		t.Fatal("expected Build to reject a destination outside the project")
 	}
 }
+
+// writeProjectFile writes a file inside the project and returns its hash, so a
+// test can record in the lockfile exactly what deal-kit would have written.
+func writeProjectFile(t *testing.T, projectDir, rel, content string) string {
+	t.Helper()
+	abs := filepath.Join(projectDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return lockfile.Hash([]byte(content))
+}
+
+func TestBuildDeletesTheFilesOfAnOrphanedArtifact(t *testing.T) {
+	kitDir, projectDir := fixture(t, map[string]string{
+		"skills/web/ui/SKILL.md": "---\nname: web-ui\n---\n",
+	})
+	hash := writeProjectFile(t, projectDir, ".claude/skills/general-pr-workflow/SKILL.md", "old skill\n")
+	lock := &lockfile.File{Roots: roots, Artifacts: []lockfile.Installed{{
+		ID:    "general/pr-workflow",
+		Files: []lockfile.OwnedFile{{Path: ".claude/skills/general-pr-workflow/SKILL.md", Hash: hash}},
+	}}}
+
+	p, err := Build(Input{
+		Artifacts: []kit.Artifact{skillArtifact()},
+		Orphans:   []string{"general/pr-workflow"},
+		Lock:      lock, KitDir: kitDir, ProjectDir: projectDir, Roots: roots,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k, r := kindOf(p, ".claude/skills/general-pr-workflow/SKILL.md"); k != Delete {
+		t.Fatalf("kind = %q (%s), want delete", k, r)
+	}
+
+	if err := p.Apply(projectDir, lock); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "skills", "general-pr-workflow", "SKILL.md")); !os.IsNotExist(err) {
+		t.Errorf("the orphaned file is still on disk (err = %v)", err)
+	}
+	if _, ok := lock.Artifact("general/pr-workflow"); ok {
+		t.Error("the orphaned artifact is still recorded in the lockfile")
+	}
+}
+
+func TestBuildBlocksAnOrphanedArtifactWithALocalEdit(t *testing.T) {
+	kitDir, projectDir := fixture(t, map[string]string{
+		"skills/web/ui/SKILL.md": "---\nname: web-ui\n---\n",
+	})
+	writeProjectFile(t, projectDir, ".claude/skills/general-pr-workflow/SKILL.md", "edited by hand\n")
+	lock := &lockfile.File{Roots: roots, Artifacts: []lockfile.Installed{{
+		ID: "general/pr-workflow",
+		Files: []lockfile.OwnedFile{{
+			Path: ".claude/skills/general-pr-workflow/SKILL.md",
+			Hash: lockfile.Hash([]byte("as deal-kit wrote it\n")),
+		}},
+	}}}
+
+	p, err := Build(Input{
+		Artifacts: []kit.Artifact{skillArtifact()},
+		Orphans:   []string{"general/pr-workflow"},
+		Lock:      lock, KitDir: kitDir, ProjectDir: projectDir, Roots: roots,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, reason := kindOf(p, ".claude/skills/general-pr-workflow/SKILL.md")
+	if k != Blocked {
+		t.Fatalf("kind = %q (%s), want blocked", k, reason)
+	}
+	if reason != "no longer part of this artifact, but edited locally" {
+		t.Errorf("reason = %q, want the wording every other removal uses", reason)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "skills", "general-pr-workflow", "SKILL.md")); err != nil {
+		t.Errorf("the locally edited file must stay on disk: %v", err)
+	}
+}
+
+func TestBuildIgnoresAnOrphanWhoseFilesAreAlreadyGone(t *testing.T) {
+	kitDir, projectDir := fixture(t, map[string]string{
+		"skills/web/ui/SKILL.md": "---\nname: web-ui\n---\n",
+	})
+	lock := &lockfile.File{Roots: roots, Artifacts: []lockfile.Installed{{
+		ID: "general/pr-workflow",
+		Files: []lockfile.OwnedFile{{
+			Path: ".claude/skills/general-pr-workflow/SKILL.md",
+			Hash: lockfile.Hash([]byte("gone\n")),
+		}},
+	}}}
+
+	p, err := Build(Input{
+		Artifacts: []kit.Artifact{skillArtifact()},
+		Orphans:   []string{"general/pr-workflow"},
+		Lock:      lock, KitDir: kitDir, ProjectDir: projectDir, Roots: roots,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k, _ := kindOf(p, ".claude/skills/general-pr-workflow/SKILL.md"); k != "" {
+		t.Errorf("kind = %q, want no action for a file that is already gone", k)
+	}
+	// The stale entry must still leave the lockfile, or status reports the
+	// orphan forever with nothing left to do about it.
+	if err := p.Apply(projectDir, lock); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := lock.Artifact("general/pr-workflow"); ok {
+		t.Error("the orphaned artifact is still recorded in the lockfile")
+	}
+}

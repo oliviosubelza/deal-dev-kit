@@ -133,9 +133,11 @@ func Init(e Env, typeOverride string) error {
 	if len(ids) == 0 {
 		return fmt.Errorf("project type %s has no profile in kit.yaml", pt)
 	}
-	// An existing lockfile keeps whatever it already had installed.
-	for _, a := range lock.Artifacts {
-		ids = appendUnique(ids, a.ID)
+	// An existing lockfile keeps whatever it already had installed, minus
+	// anything the manifest no longer declares.
+	installed, orphans := m.PartitionInstalled(lockIDs(lock))
+	for _, id := range installed {
+		ids = appendUnique(ids, id)
 	}
 
 	roots := spec.Roots
@@ -151,7 +153,7 @@ func Init(e Env, typeOverride string) error {
 
 	lock.ProjectType = string(pt)
 	lock.Roots = roots
-	return syncArtifacts(e, root, ck, m, lock, pt, ids)
+	return syncArtifacts(e, root, ck, m, lock, pt, ids, orphans)
 }
 
 // Add installs additional artifacts into an initialised project.
@@ -183,11 +185,14 @@ func Add(e Env, ids []string) error {
 		return fmt.Errorf("%s records unknown project type %q", lockfile.Name, lock.ProjectType)
 	}
 
+	// The ids the user named go through unfiltered: a typo there must fail,
+	// and the manifest is the authority on what can be added.
 	want := ids
-	for _, a := range lock.Artifacts {
-		want = appendUnique(want, a.ID)
+	installed, orphans := m.PartitionInstalled(lockIDs(lock))
+	for _, id := range installed {
+		want = appendUnique(want, id)
 	}
-	return syncArtifacts(e, root, ck, m, lock, pt, want)
+	return syncArtifacts(e, root, ck, m, lock, pt, want, orphans)
 }
 
 // Status reports what is installed and whether it has drifted.
@@ -215,11 +220,13 @@ func Status(e Env) error {
 	}
 
 	pt := kit.ProjectType(lock.ProjectType)
-	var ids []string
-	for _, a := range lock.Artifacts {
-		ids = append(ids, a.ID)
-	}
+	// The lockfile describes history: an id it records that the manifest no
+	// longer declares is orphaned, and reporting it is the only way the user
+	// can act on it. Passing it to Resolve would abort the one command that
+	// could tell them about it.
+	ids, orphans := m.PartitionInstalled(lockIDs(lock))
 	sort.Strings(ids)
+	sort.Strings(orphans)
 
 	pinned := lock.KitVersion
 	if pinned == "" {
@@ -237,27 +244,30 @@ func Status(e Env) error {
 		return err
 	}
 	p, err := plan.Build(plan.Input{
-		Artifacts: artifacts, Lock: lock,
+		Artifacts: artifacts, Orphans: orphans, Lock: lock,
 		KitDir: ck.Dir, ProjectDir: root, Roots: lock.Roots,
 		Rewrites: m.Rewrites(pt),
 	})
 	if err != nil {
 		return err
 	}
-	renderStatus(e.Stdout, artifacts, p)
+	renderStatus(e.Stdout, artifacts, orphans, p)
 	return nil
 }
 
 // syncArtifacts resolves, plans, confirms and applies. Every command that
 // changes the project goes through here, so the TUI and the flags can never
 // diverge in what they actually do.
-func syncArtifacts(e Env, root string, ck kit.Checkout, m *kit.Manifest, lock *lockfile.File, pt kit.ProjectType, ids []string) error {
+// orphans are ids the lockfile records that the manifest no longer declares;
+// they are removed rather than installed. They must arrive already separated
+// from ids, which every caller does with kit.Manifest.PartitionInstalled.
+func syncArtifacts(e Env, root string, ck kit.Checkout, m *kit.Manifest, lock *lockfile.File, pt kit.ProjectType, ids, orphans []string) error {
 	artifacts, err := m.Resolve(pt, ids)
 	if err != nil {
 		return err
 	}
 	p, err := plan.Build(plan.Input{
-		Artifacts: artifacts, Lock: lock,
+		Artifacts: artifacts, Orphans: orphans, Lock: lock,
 		KitDir: ck.Dir, ProjectDir: root, Roots: lock.Roots,
 		Rewrites: m.Rewrites(pt),
 	})
@@ -359,6 +369,15 @@ func formatRoots(roots map[string]string) string {
 		parts = append(parts, fmt.Sprintf("%s → %s", k, roots[k]))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// lockIDs is every artifact id the project's lockfile records, in file order.
+func lockIDs(lock *lockfile.File) []string {
+	out := make([]string, 0, len(lock.Artifacts))
+	for _, a := range lock.Artifacts {
+		out = append(out, a.ID)
+	}
+	return out
 }
 
 func appendUnique(ss []string, s string) []string {

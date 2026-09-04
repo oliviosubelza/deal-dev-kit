@@ -29,6 +29,14 @@ const (
 	Blocked   Kind = "blocked" // a local edit or a foreign file; needs a human
 )
 
+// Reasons for removing a file the lockfile records but nothing produces any
+// more. An orphaned artifact reuses them: from the project's side the file is
+// gone from the kit either way, and one wording keeps the report uniform.
+const (
+	reasonRemoved       = "no longer part of this artifact"
+	reasonRemovedEdited = "no longer part of this artifact, but edited locally"
+)
+
 // Action is one filesystem mutation, or the decision not to make one.
 type Action struct {
 	Kind       Kind
@@ -59,6 +67,13 @@ type Input struct {
 	// Rewrites maps an import prefix the kit authors against to the prefix the
 	// project uses. See internal/plan/rewrite.go.
 	Rewrites map[string]string
+
+	// Orphans are ids the lockfile records that the manifest no longer
+	// declares, already separated out by kit.Manifest.PartitionInstalled.
+	// They have no Artifact to install from, so everything they own is
+	// removed under the same rule that removes a file an artifact stopped
+	// producing.
+	Orphans []string
 }
 
 // Build computes the plan without touching the project.
@@ -89,32 +104,24 @@ func Build(in Input) (*Plan, error) {
 
 		// A file the artifact used to own but no longer produces is removed —
 		// but only when the project has not diverged from what we wrote.
-		if prev, ok := in.Lock.Artifact(a.ID); ok {
-			for _, old := range prev.Files {
-				if produced[old.Path] {
-					continue
-				}
-				abs := filepath.Join(in.ProjectDir, filepath.FromSlash(old.Path))
-				current, exists, err := lockfile.HashFile(abs)
-				if err != nil {
-					return nil, err
-				}
-				switch {
-				case !exists:
-					// Already gone; nothing to do, and nothing to record.
-				case current != old.Hash:
-					p.Actions = append(p.Actions, Action{
-						Kind: Blocked, ArtifactID: a.ID, Path: old.Path,
-						Reason: "no longer part of this artifact, but edited locally",
-					})
-					p.owned[a.ID] = append(p.owned[a.ID], old)
-				default:
-					p.Actions = append(p.Actions, Action{
-						Kind: Delete, ArtifactID: a.ID, Path: old.Path,
-						Reason: "no longer part of this artifact",
-					})
-				}
-			}
+		if err := p.planRemovals(in, a.ID, produced); err != nil {
+			return nil, err
+		}
+	}
+
+	// An orphaned artifact produces nothing, so every file it still owns goes
+	// under exactly the same rule.
+	for _, id := range in.Orphans {
+		// Registering the id with no files is what tells Apply to drop the
+		// lock entry; planRemovals adds files back if any are blocked.
+		if _, ok := in.Lock.Artifact(id); !ok {
+			continue
+		}
+		if _, recorded := p.owned[id]; !recorded {
+			p.owned[id] = nil
+		}
+		if err := p.planRemovals(in, id, nil); err != nil {
+			return nil, err
 		}
 	}
 
@@ -125,6 +132,44 @@ func Build(in Input) (*Plan, error) {
 		return p.Actions[i].Path < p.Actions[j].Path
 	})
 	return p, nil
+}
+
+// planRemovals plans the removal of every file the lockfile records for an
+// artifact that the artifact no longer produces. produced is the set of
+// destinations it still writes; for an orphaned artifact it is empty, so the
+// whole record is removed. A file that diverged from the recorded hash is
+// blocked and stays owned: deal-kit never deletes work it cannot restore.
+func (p *Plan) planRemovals(in Input, id string, produced map[string]bool) error {
+	prev, ok := in.Lock.Artifact(id)
+	if !ok {
+		return nil
+	}
+	for _, old := range prev.Files {
+		if produced[old.Path] {
+			continue
+		}
+		abs := filepath.Join(in.ProjectDir, filepath.FromSlash(old.Path))
+		current, exists, err := lockfile.HashFile(abs)
+		if err != nil {
+			return err
+		}
+		switch {
+		case !exists:
+			// Already gone; nothing to do, and nothing to record.
+		case current != old.Hash:
+			p.Actions = append(p.Actions, Action{
+				Kind: Blocked, ArtifactID: id, Path: old.Path,
+				Reason: reasonRemovedEdited,
+			})
+			p.owned[id] = append(p.owned[id], old)
+		default:
+			p.Actions = append(p.Actions, Action{
+				Kind: Delete, ArtifactID: id, Path: old.Path,
+				Reason: reasonRemoved,
+			})
+		}
+	}
+	return nil
 }
 
 type pair struct {

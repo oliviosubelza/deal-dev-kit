@@ -36,11 +36,8 @@ func Update(e Env) error {
 		return fmt.Errorf("%s records unknown project type %q", lockfile.Name, lock.ProjectType)
 	}
 
-	var ids []string
-	for _, a := range lock.Artifacts {
-		ids = append(ids, a.ID)
-	}
-	if len(ids) == 0 {
+	ids, orphans := m.PartitionInstalled(lockIDs(lock))
+	if len(ids) == 0 && len(orphans) == 0 {
 		return fmt.Errorf("nothing is installed; run `deal-kit init` first")
 	}
 
@@ -50,5 +47,5 @@ func Update(e Env) error {
 	}
 	fmt.Fprintf(e.Stdout, "  kit       %s → %s\n\n", from, ck.Version)
 
-	return syncArtifacts(e, root, ck, m, lock, pt, ids)
+	return syncArtifacts(e, root, ck, m, lock, pt, ids, orphans)
 }

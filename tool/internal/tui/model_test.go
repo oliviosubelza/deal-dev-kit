@@ -11,6 +11,7 @@ import (
 
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/lockfile"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
 )
 
 var update = flag.Bool("update", false, "update golden files")
@@ -684,4 +685,104 @@ func TestViewAppliedShowsWhereTheWorkLanded(t *testing.T) {
 		t.Fatalf("screen = %v (err: %v)", m.screen, m.err)
 	}
 	assertGolden(t, "applied", goldenView(m))
+}
+
+// orphanLock is a project whose lockfile records an artifact the manifest no
+// longer declares, with the file on disk exactly as deal-kit wrote it.
+func orphanLock(t *testing.T, cfgRoot string) *lockfile.File {
+	t.Helper()
+	const content = "---\nname: general-pr-workflow\n---\n"
+	abs := filepath.Join(cfgRoot, ".claude", "skills", "general-pr-workflow", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return &lockfile.File{
+		Roots: map[string]string{"src": "src", "ui": "src/shared/ui"},
+		Artifacts: []lockfile.Installed{{
+			ID: "general/pr-workflow",
+			Files: []lockfile.OwnedFile{{
+				Path: ".claude/skills/general-pr-workflow/SKILL.md",
+				Hash: lockfile.Hash([]byte(content)),
+			}},
+		}},
+	}
+}
+
+func TestStatusScreenPlansAnOrphanedArtifactInsteadOfFailing(t *testing.T) {
+	cfg := testConfig(t, nil)
+	cfg.Lock = orphanLock(t, cfg.ProjectRoot)
+	m := New(cfg)
+
+	msg, ok := m.buildPlanFor(m.installedIDs())().(planBuiltMsg)
+	if !ok {
+		t.Fatalf("unexpected message type")
+	}
+	if msg.err != nil {
+		t.Fatalf("err = %v, want the orphan planned instead of an error", msg.err)
+	}
+	found := false
+	for _, a := range msg.plan.Actions {
+		if a.Path == ".claude/skills/general-pr-workflow/SKILL.md" {
+			found = true
+			if a.Kind != plan.Delete {
+				t.Errorf("kind = %q (%s), want delete", a.Kind, a.Reason)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("the orphan's file is not in the plan: %+v", msg.plan.Actions)
+	}
+}
+
+func TestSelectingArtifactsStillPlansAnOrphanForRemoval(t *testing.T) {
+	cfg := testConfig(t, nil)
+	cfg.Lock = orphanLock(t, cfg.ProjectRoot)
+	m := New(cfg)
+
+	// The orphan is not selectable — it is not in the catalog — so it must be
+	// planned from the lockfile whatever the user picked.
+	msg, ok := m.buildPlanFor([]string{"web/ui"})().(planBuiltMsg)
+	if !ok {
+		t.Fatalf("unexpected message type")
+	}
+	if msg.err != nil {
+		t.Fatalf("err = %v, want no error", msg.err)
+	}
+	if k, r := kindAt(msg.plan, ".claude/skills/general-pr-workflow/SKILL.md"); k != plan.Delete {
+		t.Errorf("kind = %q (%s), want delete", k, r)
+	}
+}
+
+func kindAt(p *plan.Plan, path string) (plan.Kind, string) {
+	for _, a := range p.Actions {
+		if a.Path == path {
+			return a.Kind, a.Reason
+		}
+	}
+	return "", "not in plan"
+}
+
+func TestApplyDropsAnOrphanedArtifactFromTheLockfile(t *testing.T) {
+	cfg := testConfig(t, nil)
+	cfg.Lock = orphanLock(t, cfg.ProjectRoot)
+	m := New(cfg)
+
+	msg := m.buildPlanFor(m.installedIDs())().(planBuiltMsg)
+	if msg.err != nil {
+		t.Fatal(msg.err)
+	}
+	m.plan = msg.plan
+	if applied := m.apply()().(appliedMsg); applied.err != nil {
+		t.Fatal(applied.err)
+	}
+
+	if _, err := os.Stat(filepath.Join(cfg.ProjectRoot, ".claude", "skills", "general-pr-workflow", "SKILL.md")); !os.IsNotExist(err) {
+		t.Errorf("the orphan's file survived apply (err = %v)", err)
+	}
+	if _, ok := cfg.Lock.Artifact("general/pr-workflow"); ok {
+		t.Error("the orphan is still recorded in the lockfile")
+	}
 }

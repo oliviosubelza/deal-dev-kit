@@ -155,6 +155,23 @@ func (m *Manifest) Artifact(id string) (Artifact, bool) {
 	return Artifact{}, false
 }
 
+// PartitionInstalled splits the artifact ids a project's lockfile records
+// into those the manifest still declares and those it no longer does. An id
+// only the lockfile knows about is orphaned, not an error: the lockfile
+// describes history and the manifest describes now. Callers must partition
+// before calling Resolve, where an unknown id means the manifest itself is
+// wrong and failing is the right answer.
+func (m *Manifest) PartitionInstalled(ids []string) (known, orphaned []string) {
+	for _, id := range ids {
+		if _, ok := m.Artifact(id); ok {
+			known = append(known, id)
+			continue
+		}
+		orphaned = append(orphaned, id)
+	}
+	return known, orphaned
+}
+
 // Resolve expands the given artifact IDs into the full install set for a
 // project type, following Requires transitively. The result is ordered
 // dependencies-first so a caller can install it as-is.

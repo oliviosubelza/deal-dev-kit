@@ -614,17 +614,32 @@ func (m Model) buildPlan() tea.Cmd { return m.buildPlanFor(m.SelectedIDs()) }
 func (m Model) buildPlanFor(ids []string) tea.Cmd {
 	cfg := m.cfg
 	return func() tea.Msg {
-		artifacts, err := cfg.Manifest.Resolve(cfg.ProjectType, ids)
+		// The lockfile can name an artifact the manifest no longer declares.
+		// Resolve would reject it, so it is split off here and removed by the
+		// plan instead — the same split the flags make, since the TUI must
+		// never decide anything about a sync on its own.
+		selected, _ := cfg.Manifest.PartitionInstalled(ids)
+		_, orphans := cfg.Manifest.PartitionInstalled(lockIDs(cfg.Lock))
+		artifacts, err := cfg.Manifest.Resolve(cfg.ProjectType, selected)
 		if err != nil {
 			return planBuiltMsg{err: err}
 		}
 		p, err := plan.Build(plan.Input{
-			Artifacts: artifacts, Lock: cfg.Lock,
+			Artifacts: artifacts, Orphans: orphans, Lock: cfg.Lock,
 			KitDir: cfg.KitDir, ProjectDir: cfg.ProjectRoot, Roots: cfg.Roots,
 			Rewrites: cfg.Rewrites,
 		})
 		return planBuiltMsg{plan: p, err: err}
 	}
+}
+
+// lockIDs is every artifact id the project's lockfile records.
+func lockIDs(lock *lockfile.File) []string {
+	out := make([]string, 0, len(lock.Artifacts))
+	for _, a := range lock.Artifacts {
+		out = append(out, a.ID)
+	}
+	return out
 }
 
 func (m Model) apply() tea.Cmd {

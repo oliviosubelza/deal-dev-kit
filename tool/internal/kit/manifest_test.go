@@ -522,3 +522,70 @@ artifacts:
 		t.Errorf("group = %q, want the declared %q", b.Group, "Web")
 	}
 }
+
+func TestPartitionInstalledSeparatesOrphanedIDs(t *testing.T) {
+	m, err := ParseManifest([]byte(validManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A lockfile records history: "general/pr-workflow" was installed before
+	// the manifest stopped declaring it, and must not reach Resolve.
+	known, orphaned := m.PartitionInstalled([]string{"web/ui", "general/pr-workflow", "ui-kit/button"})
+
+	if got, want := strings.Join(known, ","), "web/ui,ui-kit/button"; got != want {
+		t.Errorf("known = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(orphaned, ","), "general/pr-workflow"; got != want {
+		t.Errorf("orphaned = %q, want %q", got, want)
+	}
+}
+
+func TestPartitionInstalledReportsNoOrphansWhenTheManifestDeclaresEverything(t *testing.T) {
+	m, err := ParseManifest([]byte(validManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	known, orphaned := m.PartitionInstalled([]string{"web/ui", "backend/architecture"})
+
+	if got, want := strings.Join(known, ","), "web/ui,backend/architecture"; got != want {
+		t.Errorf("known = %q, want %q", got, want)
+	}
+	if len(orphaned) != 0 {
+		t.Errorf("orphaned = %v, want none", orphaned)
+	}
+}
+
+// An id that arrives from kit.yaml itself is a manifest bug, and must keep
+// failing: only lockfile-derived ids are allowed to be orphaned.
+func TestResolveRejectsAnUnknownArtifact(t *testing.T) {
+	m, err := ParseManifest([]byte(validManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := m.Resolve("web", []string{"web/ui", "general/pr-workflow"}); err == nil {
+		t.Fatal("Resolve() = nil, want an error for an id the manifest does not declare")
+	} else if !strings.Contains(err.Error(), `unknown artifact "general/pr-workflow"`) {
+		t.Errorf("error = %v, want unknown artifact", err)
+	}
+}
+
+func TestParseManifestRejectsAProfileNamingAnUnknownArtifact(t *testing.T) {
+	yaml := `
+version: 1
+project_types: { web: { match: crm-deal-web } }
+profiles:
+  web: [general/pr-workflow]
+artifacts:
+  - { id: web/ui, type: skill, applies_to: [web], src: skills/web/ui }
+`
+	_, err := ParseManifest([]byte(yaml))
+	if err == nil {
+		t.Fatal("ParseManifest() = nil, want an error for a profile naming an unknown artifact")
+	}
+	if !strings.Contains(err.Error(), "references unknown artifact") {
+		t.Errorf("error = %v, want references unknown artifact", err)
+	}
+}

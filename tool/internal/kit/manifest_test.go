@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,9 +44,14 @@ func TestParseManifestRejectsInvalidInput(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "unsupported version",
-			yaml:    "version: 2",
-			wantErr: "versión 2 no soportada",
+			name:    "unsupported version above the supported set",
+			yaml:    "version: 3",
+			wantErr: "versión 3 no soportada",
+		},
+		{
+			name:    "unsupported version below the supported set",
+			yaml:    "version: 0",
+			wantErr: "versión 0 no soportada",
 		},
 		{
 			name: "duplicate artifact id",
@@ -168,6 +174,43 @@ func TestParseManifestAcceptsValidInput(t *testing.T) {
 	}
 	if got := m.Profiles[Web]; len(got) != 2 {
 		t.Errorf("web profile = %v, want 2 entries", got)
+	}
+}
+
+// A project pinned to an older kit tag still fetches a version 1 manifest, so
+// the CLI has to keep reading both schema versions.
+func TestParseManifestAcceptsEverySupportedVersion(t *testing.T) {
+	for _, version := range []int{1, 2} {
+		t.Run(fmt.Sprintf("version %d", version), func(t *testing.T) {
+			m, err := ParseManifest([]byte(fmt.Sprintf(`
+version: %d
+project_types: { web: { match: crm-deal-web } }
+profiles:
+  web: [web/ui]
+artifacts:
+  - { id: web/ui, type: skill, applies_to: [web], src: skills/web/ui }
+`, version)))
+			if err != nil {
+				t.Fatalf("version %d: unexpected error: %v", version, err)
+			}
+			if got, ok := m.Artifact("web/ui"); !ok || got.Type != "skill" {
+				t.Fatalf("version %d: web/ui = %+v, ok=%v, want type skill", version, got, ok)
+			}
+		})
+	}
+}
+
+// The version number alone does not tell an operator what to do about it; the
+// message has to name the remedy, because an out-of-date binary is the cause.
+func TestParseManifestVersionErrorNamesTheRemedy(t *testing.T) {
+	_, err := ParseManifest([]byte("version: 3"))
+	if err == nil {
+		t.Fatal("expected an error for version 3")
+	}
+	for _, want := range []string{"versión 3 no soportada", "se esperaba 1 o 2", "deal-kit self-update"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to contain %q", err, want)
+		}
 	}
 }
 

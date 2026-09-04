@@ -8,7 +8,7 @@
 # Destinations resolve against the CRM DEAL folder structure. `deal-kit init`
 # detects the project type and records the roots in deal-kit.lock.
 
-version: 1
+version: 2
 
 # CRM DEAL is a polyrepo: one repository per project, three project types.
 project_types:

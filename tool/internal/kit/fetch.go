@@ -49,11 +49,17 @@ func Fetch(src Source) (Checkout, error) {
 			return Checkout{}, err
 		}
 		// A blobless clone pulls history cheaply and file contents on demand.
-		if out, err := git("", "clone", "--filter=blob:none", "--quiet", src.Repo, dir); err != nil {
+		// No --quiet: git's output is captured, not printed, and it is what
+		// makes a failure explain itself in the error below.
+		if out, err := git("", "clone", "--filter=blob:none", src.Repo, dir); err != nil {
 			return Checkout{}, fmt.Errorf("al clonar %s: %w\n%s", src.Repo, err, out)
 		}
 	} else if !src.Offline {
-		if out, err := git(dir, "fetch", "--tags", "--prune", "--quiet", "origin"); err != nil {
+		// The cache is a disposable mirror and the remote is authoritative:
+		// --force adopts a tag that moved upstream instead of refusing to
+		// clobber the local one, and --prune-tags drops a tag deleted
+		// upstream so it can no longer be picked as the newest kit-v*.
+		if out, err := git(dir, "fetch", "--tags", "--force", "--prune", "--prune-tags", "origin"); err != nil {
 			return Checkout{}, fmt.Errorf("al hacer fetch de %s: %w\n%s", src.Repo, err, out)
 		}
 	}

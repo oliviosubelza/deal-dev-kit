@@ -47,6 +47,25 @@ correr `deal-kit self-update` antes de poder pinear contenido que su binario vie
 sabe leer. Al revés, un binario anterior a este cambio falla con
 `kit.yaml: unsupported version 2 (expected 1)` y no hay camino de salida automático.
 
+### Mover un tag ya publicado rompe los cachés viejos
+
+`Fetch` cachea un clon por repositorio, así que un tag que se mueve en el remoto choca
+con el que el caché ya tiene. Hasta el arreglo del `--force`, `git fetch --tags` se negaba
+a adoptarlo y **todo** comando fallaba con `exit status 1` sin explicación, incluido
+`status` — no había salida dentro de la herramienta.
+
+Ya está arreglado: el fetch usa `--force` y `--prune-tags`, y el caché adopta lo que diga
+el remoto. Pero el arreglo vive en el binario, así que **una máquina con un CLI anterior
+sigue rota** hasta que borre su caché a mano:
+
+```
+~/.cache/deal-kit/kits/<slug>-<hash>                    # Linux/macOS
+%LocalAppData%\deal-kit\kits\<slug>-<hash>             # Windows
+```
+
+Pasó de verdad con `kit-v0.2.0`: el caché tenía `c4b1a57` y el remoto `03af755`.
+Preferir un tag nuevo antes que mover uno publicado.
+
 ---
 
 ## 2. RESUELTO: `kit-v0.2.0` ya apunta a las 7 skills escritas

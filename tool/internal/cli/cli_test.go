@@ -65,7 +65,7 @@ func TestProjectRootRejectsTheKitItself(t *testing.T) {
 		if err == nil {
 			t.Fatalf("from %q: expected an error, got none", cwd)
 		}
-		if !strings.Contains(err.Error(), "is the kit itself") {
+		if !strings.Contains(err.Error(), "es el kit en sí") {
 			t.Errorf("from %q: error = %q, want it to name the mistake", cwd, err)
 		}
 	}
@@ -76,7 +76,7 @@ func TestProjectRootOutsideAnyProject(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error outside any project")
 	}
-	if !strings.Contains(err.Error(), "not inside a project") {
+	if !strings.Contains(err.Error(), "no se está dentro de un proyecto") {
 		t.Errorf("error = %q", err)
 	}
 }
@@ -102,7 +102,7 @@ func TestHereStillRefusesTheKit(t *testing.T) {
 	if err == nil {
 		t.Fatal("--here must not install the kit into itself")
 	}
-	if !strings.Contains(err.Error(), "is the kit itself") {
+	if !strings.Contains(err.Error(), "es el kit en sí") {
 		t.Errorf("error = %q", err)
 	}
 }

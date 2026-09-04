@@ -22,10 +22,10 @@ func TestResolve(t *testing.T) {
 		{name: "root with suffix", template: "{src}/shared/lib", want: "src/shared/lib"},
 		{name: "bare root", template: "{features}", want: "src/features"},
 		{name: "no placeholder", template: "docs/readme.md", want: "docs/readme.md"},
-		{name: "unknown root", template: "{styles}/theme.css", wantErr: `unknown root "styles"`},
-		{name: "traversal via literal", template: "../outside", wantErr: "escapes the project directory"},
-		{name: "traversal via root", template: "{src}/../../etc", wantErr: "escapes the project directory"},
-		{name: "absolute path", template: "/etc/passwd", wantErr: "escapes the project directory"},
+		{name: "unknown root", template: "{styles}/theme.css", wantErr: `raíz desconocida "styles"`},
+		{name: "traversal via literal", template: "../outside", wantErr: "se sale del directorio del proyecto"},
+		{name: "traversal via root", template: "{src}/../../etc", wantErr: "se sale del directorio del proyecto"},
+		{name: "absolute path", template: "/etc/passwd", wantErr: "se sale del directorio del proyecto"},
 	}
 
 	for _, tt := range tests {

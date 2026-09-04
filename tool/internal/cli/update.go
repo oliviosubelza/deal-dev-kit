@@ -19,7 +19,7 @@ func Update(e Env) error {
 		return err
 	}
 	if !existed {
-		return fmt.Errorf("this project has no %s yet: run `deal-kit init` first", lockfile.Name)
+		return fmt.Errorf("este proyecto todavía no tiene %s: ejecutar `deal-kit init` primero", lockfile.Name)
 	}
 
 	ck, err := e.kit()
@@ -28,24 +28,24 @@ func Update(e Env) error {
 	}
 	m, err := kit.LoadManifest(ck.Dir)
 	if err != nil {
-		return fmt.Errorf("reading the kit: %w", err)
+		return fmt.Errorf("no se pudo leer el kit: %w", err)
 	}
 
 	pt := kit.ProjectType(lock.ProjectType)
 	if _, ok := m.ProjectTypes[pt]; !ok {
-		return fmt.Errorf("%s records unknown project type %q", lockfile.Name, lock.ProjectType)
+		return fmt.Errorf("%s registra un tipo de proyecto desconocido %q", lockfile.Name, lock.ProjectType)
 	}
 
 	ids, orphans := m.PartitionInstalled(lockIDs(lock))
 	if len(ids) == 0 && len(orphans) == 0 {
-		return fmt.Errorf("nothing is installed; run `deal-kit init` first")
+		return fmt.Errorf("no hay nada instalado; ejecutar `deal-kit init` primero")
 	}
 
 	from := lock.KitVersion
 	if from == "" {
-		from = "(unpinned)"
+		from = "(sin fijar)"
 	}
-	fmt.Fprintf(e.Stdout, "  kit       %s → %s\n\n", from, ck.Version)
+	fmt.Fprintf(e.Stdout, "  kit        %s → %s\n\n", from, ck.Version)
 
 	return syncArtifacts(e, root, ck, m, lock, pt, ids, orphans)
 }

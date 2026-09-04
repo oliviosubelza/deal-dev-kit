@@ -35,7 +35,7 @@ func Run(cfg Config) (Model, error) {
 	}
 	m, ok := final.(Model)
 	if !ok {
-		return Model{}, fmt.Errorf("unexpected model type %T", final)
+		return Model{}, fmt.Errorf("tipo de modelo inesperado %T", final)
 	}
 	return m, m.Err()
 }

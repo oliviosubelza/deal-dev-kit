@@ -13,7 +13,7 @@ import (
 func SelfUpdate(e Env, check bool) error {
 	exe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("cannot locate the running binary: %w", err)
+		return fmt.Errorf("no se pudo ubicar el binario en ejecución: %w", err)
 	}
 	// Follow symlinks so a linked install is updated in place rather than
 	// replacing the link with a binary.
@@ -31,23 +31,23 @@ func SelfUpdate(e Env, check bool) error {
 	if current == "" {
 		current = "dev"
 	}
-	fmt.Fprintf(e.Stdout, "  installed  %s\n  latest     %s\n", current, release.Version)
+	fmt.Fprintf(e.Stdout, "  instalado   %s\n  última      %s\n", current, release.Version)
 
 	// "dev" is a local build, which has no version to compare and should not
 	// be silently replaced by a release.
 	if current == "dev" && !e.AssumeYes {
-		return fmt.Errorf("this is a local build; pass --yes to replace it with %s", release.Version)
+		return fmt.Errorf("esto es un build local; pasar --yes para reemplazarlo por %s", release.Version)
 	}
 	if versionsMatch(current, release.Version) {
-		fmt.Fprintln(e.Stdout, "\n  already up to date")
+		fmt.Fprintln(e.Stdout, "\n  ya está actualizado")
 		return nil
 	}
 	if check {
-		fmt.Fprintf(e.Stdout, "\n  run `deal-kit self-update` to install %s\n", release.Version)
+		fmt.Fprintf(e.Stdout, "\n  ejecutar `deal-kit self-update` para instalar %s\n", release.Version)
 		return nil
 	}
 
-	fmt.Fprintf(e.Stdout, "\n  downloading %s\n", selfupdate.AssetName())
+	fmt.Fprintf(e.Stdout, "\n  descargando %s\n", selfupdate.AssetName())
 	binary, err := c.Fetch(release)
 	if err != nil {
 		return err
@@ -55,7 +55,7 @@ func SelfUpdate(e Env, check bool) error {
 	if err := selfupdate.Replace(exe, binary); err != nil {
 		return err
 	}
-	fmt.Fprintf(e.Stdout, "  updated    %s → %s\n  at         %s\n", current, release.Version, exe)
+	fmt.Fprintf(e.Stdout, "  actualizado %s → %s\n  en          %s\n", current, release.Version, exe)
 	return nil
 }
 

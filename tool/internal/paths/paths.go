@@ -28,11 +28,11 @@ func Resolve(template string, roots map[string]string) (string, error) {
 		return v
 	})
 	if len(missing) > 0 {
-		return "", fmt.Errorf("unknown root %s in %q", strings.Join(quoteAll(missing), ", "), template)
+		return "", fmt.Errorf("raíz desconocida %s en %q", strings.Join(quoteAll(missing), ", "), template)
 	}
 	clean := path.Clean(out)
 	if clean == ".." || strings.HasPrefix(clean, "../") || path.IsAbs(clean) {
-		return "", fmt.Errorf("destination %q escapes the project directory", template)
+		return "", fmt.Errorf("el destino %q se sale del directorio del proyecto", template)
 	}
 	return clean, nil
 }

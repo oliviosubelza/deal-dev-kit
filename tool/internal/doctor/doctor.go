@@ -62,20 +62,20 @@ func (rep Report) Found(name string) bool {
 // Core is what deal-kit itself needs.
 func Core() []Tool {
 	return []Tool{
-		{Name: "git", Purpose: "fetch the kit", Required: true, VersionArgs: []string{"--version"}},
+		{Name: "git", Purpose: "descargar el kit", Required: true, VersionArgs: []string{"--version"}},
 	}
 }
 
 // ForWeb is what creating and running a React + Vite project needs.
 func ForWeb() []Tool {
 	return []Tool{
-		{Name: "git", Purpose: "fetch the kit", Required: true, VersionArgs: []string{"--version"}},
-		{Name: "node", Purpose: "run the toolchain", Required: true, VersionArgs: []string{"--version"}},
+		{Name: "git", Purpose: "descargar el kit", Required: true, VersionArgs: []string{"--version"}},
+		{Name: "node", Purpose: "ejecutar las herramientas", Required: true, VersionArgs: []string{"--version"}},
 		// One package manager is required, but which one is the project's
 		// choice, so each is optional on its own and the caller checks that at
 		// least one turned up.
-		{Name: "pnpm", Purpose: "install dependencies", VersionArgs: []string{"--version"}},
-		{Name: "npm", Purpose: "install dependencies", VersionArgs: []string{"--version"}},
+		{Name: "pnpm", Purpose: "instalar dependencias", VersionArgs: []string{"--version"}},
+		{Name: "npm", Purpose: "instalar dependencias", VersionArgs: []string{"--version"}},
 	}
 }
 

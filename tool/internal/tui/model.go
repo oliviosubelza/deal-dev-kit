@@ -199,11 +199,9 @@ func (m Model) menu() []menuEntry {
 			note: instaladas(compInstalled, compTotal, "instalados")},
 		{title: "Estado del proyecto", target: screenStatus,
 			note: "qué hay instalado y si cambió"},
-	}
-	if m.updateAvailable() {
-		entries = append(entries, menuEntry{
-			title: "Actualizar el kit", target: screenStatus,
-			note: m.cfg.PinnedKit + " → " + m.cfg.KitVersion})
+		// No "Actualizar el kit" entry: "u" already updates from the status
+		// screen, and its legend says so. A second door to the same action
+		// only costs a menu line, and the menu has to stay scannable.
 	}
 	return append(entries, menuEntry{title: "Salir", quit: true})
 }

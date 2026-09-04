@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/engram"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/lockfile"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
@@ -44,6 +45,20 @@ type Config struct {
 	Roots       map[string]string
 	Rewrites    map[string]string
 	PackageMgr  string
+
+	// Engram and EngramPlan are the Claude Code plugin's state and the exact
+	// commands that would install it, both resolved before the program starts.
+	// The screen renders them and collects consent; it never queries or runs
+	// anything itself, because a streamed install belongs in the normal
+	// terminal rather than inside the alternate screen.
+	Engram     engram.Status
+	EngramPlan engram.Plan
+
+	// DryRun and Offline are the flags the session was started with. They
+	// reach the screen so it can say why "y" will not install, instead of
+	// silently doing nothing.
+	DryRun  bool
+	Offline bool
 }
 
 // item is one selectable artifact.
@@ -98,10 +113,13 @@ type Model struct {
 	filter    string
 	filtering bool
 
-	plan        *plan.Plan
-	err         error
-	changed     int
-	appliedRows []plan.DirSummary // summarised before the plan is released
+	plan *plan.Plan
+	err  error
+	// engramIntent is set only by pressing "y" on the Engram screen. The
+	// install itself runs after the program exits.
+	engramIntent bool
+	changed      int
+	appliedRows  []plan.DirSummary // summarised before the plan is released
 
 	quitting bool
 }
@@ -595,6 +613,12 @@ func (m Model) Result() (applied bool, deps map[string]string) {
 	}
 	return true, m.plan.Deps
 }
+
+// EngramIntent reports whether the user asked for the Engram plugin to be
+// installed. It is a separate accessor from Result on purpose: Result answers
+// "did a kit sync happen", and overloading it would make one boolean mean two
+// unrelated things.
+func (m Model) EngramIntent() bool { return m.engramIntent }
 
 // Err returns a failure from planning or applying.
 func (m Model) Err() error { return m.err }

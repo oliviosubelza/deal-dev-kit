@@ -1,6 +1,7 @@
 # deal-dev-kit — estado y pendientes
 
-Documento de traspaso. No versionado (está en `.gitignore`).
+Documento de traspaso. **Sí está versionado**: `git ls-files HANDOFF.md` lo lista y
+no aparece en `.gitignore` (la versión anterior de esta línea afirmaba lo contrario).
 Última actualización: 2026-09-04.
 
 ---
@@ -171,6 +172,11 @@ móvil divergen en el schema de un pedido, rompe en runtime, no en el editor.
 `internal/cli/new.go` llama `doctor.Check(doctor.ForWeb())` sin importar el tipo de
 proyecto. Hoy no molesta (los tres necesitan Node), pero va a mentir cuando móvil pida
 `eas` o backend pida `docker`. Falta `doctor.ForBackend()` y `doctor.ForMobile()`.
+
+`claude` y `engram` se agregaron a `ForWeb()` **a propósito** (§10): son herramientas
+del desarrollador, no del proyecto, así que aparecer en los tres tipos es el resultado
+buscado, no una fuga. Ambas son opcionales (`Required` en su cero), así que nunca
+bloquean.
 
 ### 4.5 Generador de módulos y features
 
@@ -414,3 +420,118 @@ humano.
 - `CommandFile()` y sus tests (`manifest_test.go`, `plan_test.go`) van en PR 1 (plomería,
   sin contenido). La invariante en `repo_manifest_test.go` va en PR 2 (corre contra el
   `kit.yaml` real, que es contenido de PR 2).
+
+---
+
+## 10. Engram para Claude Code (`feat/kit-engram-claude-code`)
+
+Entrada nueva del menú de la TUI que instala el plugin **Engram** en Claude Code con
+**alcance `user` (global)**, ejecutando el CLI `claude`. La TUI solo junta el
+consentimiento; la ejecución pasa en la terminal normal **después** de que Bubble Tea
+sale, igual que el install de dependencias.
+
+### Qué se agregó
+
+| Archivo | Qué hace |
+|---|---|
+| `tool/internal/engram/engram.go` | paquete nuevo: detección, plan inmutable, ejecución |
+| `tool/internal/engram/engram_test.go` | fake `Runner`, y un E2E con `claude` simulado y `HOME` temporal |
+| `tool/internal/tui/model.go` | `screenEngram`, entrada de menú, tecla `y`, `EngramIntent()` |
+| `tool/internal/tui/view.go` | `engramLines()` + helpers compartidos `proseAt`/`keyLinesAt`/`clip` |
+| `tool/internal/cli/interactive.go` | resuelve el estado antes de abrir la TUI y ejecuta después |
+| `tool/internal/cli/render.go` | `renderEngram` (stdout/stderr separados) |
+| `tool/internal/doctor/doctor.go` | `claude` y `engram` como herramientas **opcionales** |
+| `tool/internal/execenv/execenv.go` | paquete nuevo: el entorno saneado que comparten `kit` y `engram` |
+
+### Decisiones
+
+| Decisión | Razón |
+|---|---|
+| Se ejecuta `claude`, no se editan sus archivos | `claude` es dueño de ese formato; un segundo escritor se desincroniza en el primer cambio de formato. |
+| Los argumentos son constantes del paquete | Nunca salen de `kit.yaml`, de un flag ni del entorno. Un instalador que toma sus argumentos de datos se puede apuntar a otro repo editando datos. Nunca hay shell ni `sh -c`. |
+| El `#<tag>` va solo en `marketplace add` | Es el único comando que acepta ref; `install` no. Hoy fijado en `v1.20.0`. |
+| `--yes` en `install`, no en `enable` | `install` lo requiere sin TTY; `enable` no tiene el flag. El gate real de consentimiento es la tecla `y` de la TUI. |
+| Identidad del marketplace por el campo `repo` | El JSON no trae URL completa ni ref. Se compara sin distinguir mayúsculas, `.git` ni barras. |
+| Un marketplace `engram` con otro `repo` **nunca** se toca | El nombre lo ocupó algo que el usuario configuró; reemplazarlo es decisión suya. |
+| JSON ilegible ⇒ `StateUnknown`, no "no instalado" | Adivinar "no instalado" hace que deal-kit vuelva a agregar un marketplace que ya está. |
+| Se ejecuta la ruta que resolvió el `Lookup`, no el nombre pelado | Resolver una cosa y ejecutar otra es cómo un test "hermético" termina corriendo el `claude` real. Se descubrió así: la primera versión del E2E ejecutó el binario de verdad. |
+| Solo scope `user` cuenta como instalado | Una copia con scope `project` es otra decisión y no puede hacer parecer hecho el install global. |
+| `engram setup claude-code` queda **fuera** | Registra el MCP: cambia permisos y otros archivos globales. Se avisa que queda pendiente. |
+| Se sacó la entrada "Actualizar el kit" del menú | `u` ya actualiza desde "Estado del proyecto" y su leyenda lo dice. `catalog_test.go` exige ≤ 6 entradas y el menú tiene que seguir siendo escaneable. |
+| `EngramIntent()` separado de `Result()` | `Result()` contesta "¿hubo sync del kit?". Sobrecargarlo haría que un booleano signifique dos cosas sin relación. |
+| Engram no es artefacto de `kit.yaml` | Escribe en la config global del usuario, no en el proyecto. Por eso "Instalar todo" no lo incluye — hay un test que lo fija. |
+
+### Flags
+
+- `--dry-run`: consulta y muestra; `y` no produce intención. Se re-chequea en
+  `browse()` además de en la pantalla: una mutación tan lejos del flag merece dos gates.
+- `--offline`: permite las consultas (son lecturas locales) y bloquea lo que descarga.
+  Un plan que solo tiene `enable` **sí** se permite: no contacta nada.
+- `--yes`: **no** saltea la confirmación de la TUI.
+- `--no-deps`: no aplica acá.
+
+### Trampas nuevas
+
+- **`Plan.Steps()` tenía que copiar en profundidad.** Copiar solo el slice deja
+  compartido el array de cada `Args`, y quien reescribiera un elemento cambiaba lo que
+  se ejecuta. Hay test.
+- **Un token más largo que el panel no se puede word-wrappear.** La URL del marketplace
+  mide 63 caracteres; a 40 columnas desborda. Se agregó `clip()` y un test de ancho a
+  6 anchos × 6 estados, midiendo con `lipgloss.Width`.
+
+### Correcciones de la revisión 4R
+
+Cinco hallazgos de la revisión, corregidos sobre el working tree de la rama.
+
+| # | Qué estaba mal | Cómo quedó |
+|---|---|---|
+| 1 | Los comandos mutantes no imprimían nada: `ExecRunner.Run` bufferaba stdout y `Apply` descartaba esos bytes. `marketplace add` clona un repo (~13s acá, minutos en una red lenta) con la terminal muda, indistinguible de un cuelgue. | `Runner` ahora tiene dos métodos. `Run` sigue capturando stdout para parsear JSON (y stderr aparte, o una línea de warning contamina el parse). `RunStream` escribe stdout y stderr a un `io.Writer` en vivo; `Apply` recibe ese writer y `installEngram` le pasa `e.Stdout`. En tests el writer es un buffer o `nil`, así que nada deja de ser hermético. |
+| 2 | `Ctrl+C` mataba el proceso: `grep -rn "os/signal"` en `tool/` no devolvía nada. El camino elegante de `Apply` (chequeo de `ctx.Err()` + `detectFresh` sobre contexto desprendido) era código muerto desde la terminal. | `engramInstallContext()` en `internal/cli/interactive.go` arma el contexto con `signal.NotifyContext` para SIGINT/SIGTERM además del timeout. Solo alrededor del install de Engram: manejo global de señales es otra decisión. La señal llega a todo el grupo de procesos, así que `claude`/`git` mueren solos; lo que se gana es que deal-kit sobreviva a re-consultar y decir qué quedó instalado. |
+| 3 | `Applied()` era `Err == nil` y nunca miraba `Status`. Con las tres mutaciones OK y el re-chequeo final fallando (JSON ilegible, o presupuesto agotado tras un clone lento), el CLI salía 0 e imprimía "desconocido" por **stdout** como si fuera informativo. Además ese re-chequeo corría sobre el contexto compartido, no sobre uno fresco como el de la ruta de falla. | El re-chequeo del loop usa `detectFresh` (mismo tratamiento que la ruta de falla, con el porqué en el comentario). Se agregó `Outcome.Verified()` = `Err == nil && Status.State == StateReady`. `installEngram` distingue tres finales: **verificado** (sale 0), **aplicado pero no verificable** (error + advertencia por stderr, sale 1) y **falló** (como antes). Un install genuinamente exitoso sigue saliendo 0. |
+| 4 | `leakedGitVars`/`sanitizedEnv` estaba duplicado casi textual entre `internal/engram` e `internal/kit`. Es lista de seguridad: existe para que un `GIT_DIR` heredado no redirija el clone del marketplace. Dos copias divergen apenas se arregla una. | Nuevo paquete `internal/execenv` (`LeakedGitVars`, `Sanitized`). Se eligió un paquete propio y no exportarlo desde `internal/kit` porque `internal/engram` no tiene nada que ver con el fetch del kit y no debe depender de él. Cada paquete conserva un `sanitizedEnv()` de una línea que delega, así los tests existentes de ambos siguen valiendo. |
+| 5 | `--offline` tenía un solo gate, dentro de `engramBlocked()` en la TUI. `installEngram` nunca veía `e.Offline`, al revés de `--dry-run`, que sí se re-chequea en `browse()` con el comentario "una mutación tan lejos del flag merece dos gates". | `installEngram` rechaza el plan si `e.Offline && p.NeedsDownload()`. `needsDownload` se movió de `internal/tui/model.go` a `Plan.NeedsDownload()` para que el gate de la TUI y el del CLI no puedan responder distinto. Habilitar un plugin ya en disco sigue permitido offline. |
+
+Tests que lo fijan:
+
+| Fix | Test |
+|---|---|
+| 1 | `engram.TestMutatingStepsStreamTheirOutputToTheCaller`, `engram.TestQueryOutputNeverReachesTheLiveWriter`, `engram.TestExecRunnerStreamsBeforeTheCommandExits` (el script no termina hasta que el test vio su primera línea: prueba que el stream es real y no un buffer volcado al salir) |
+| 2 | `cli.TestAnInterruptedInstallReportsWhatLandedInsteadOfDying` (manda un SIGINT de verdad al proceso de test desde dentro del comando mutante) |
+| 3 | `engram.TestSucceedingCommandsWithAnUnreadableRecheckAreNotVerified`, `engram.TestAFinishedInstallIsVerified`, `engram.TestTheFinalRecheckDoesNotInheritAnExhaustedBudget`, `cli.TestInstallEngramDoesNotReportAnUnverifiableRunAsSuccess` |
+| 4 | `kit.TestSanitizedEnvDropsRepositoryOverrides` y `engram.TestSanitizedEnvDropsLeakedGitVariables`, sin cambios: ahora ejercitan el helper compartido |
+| 5 | `cli.TestInstallEngramRefusesToDownloadWhileOffline`, `cli.TestInstallEngramStillEnablesWhileOffline`, y el ya existente `tui.TestOfflineStillAllowsEnablingWhatIsAlreadyOnDisk` |
+
+Los dos tests de la #2 y la #3 se verificaron al revés: sin la corrección, el de la
+interrupción muere con `signal: interrupt` (el binario de test lo mata la señal) y el
+del presupuesto agotado falla reportando estado `0` (`StateUnknown`).
+
+### Riesgo aceptado: `MarketplaceTag` pinea un tag **mutable**
+
+`MarketplaceTag = "v1.20.0"` es un tag de git, y un tag se puede mover. Quien controle
+el repo del marketplace puede reapuntarlo a otro commit y el próximo
+`marketplace add` traería ese contenido. Un SHA de 40 caracteres sería inmutable.
+
+**No se puede cerrar, y no es un TODO.** Verificado: `claude plugin marketplace add
+<url>#<ref>` rechaza un SHA con `Remote branch not found`, porque Claude Code implementa
+el fragmento como `git clone --branch <ref>`, y `--branch` solo acepta ramas y tags.
+Reproducible fuera de `claude`:
+
+```
+$ git clone --branch 583ac7e96382998c48534a91b5f44e282d44430e origin clone
+fatal: Remote branch 583ac7e96382998c48534a91b5f44e282d44430e not found in upstream origin
+```
+
+Queda como riesgo aceptado y documentado: el pin por tag es lo más fuerte que la
+interfaz de `claude` permite hoy. Si alguna versión de Claude Code acepta un SHA,
+recién ahí se puede cerrar. Nadie lo "arregla" cambiando la constante por un SHA: eso
+rompe el install.
+
+### Verificación
+
+`gofmt -l .` limpio · `go vet ./...` limpio · `go test ./... -count=1` 12/12 paquetes
+(entra `internal/execenv`, sin tests propios: lo cubren los dos que lo usan) ·
+goldens regenerados sin diff (`menu`, `engram-confirm`, `engram-ready`, `engram-conflict`).
+
+**No se corrió un install real**: esta máquina ya tiene el marketplace agregado y el
+plugin instalado y habilitado, así que un run de verdad no ejercitaría el camino
+interesante y tocaría configuración global. Se llegó hasta `--dry-run`.

@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/doctor"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/engram"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/pm"
@@ -232,5 +234,67 @@ func renderDoctor(w io.Writer, rep doctor.Report) {
 		for _, r := range missing {
 			fmt.Fprintf(w, "  %s es necesario para %s\n", r.Name, r.Purpose)
 		}
+	}
+}
+
+// --- engram ---
+
+// renderEngram reports the outcome of installing the Claude Code plugin.
+// Failures go to stderr and progress to stdout, so a piped run keeps the two
+// apart the way every other command here does.
+func renderEngram(w, errW io.Writer, p engram.Plan, o engram.Outcome) {
+	fmt.Fprintf(w, "\n  %d de %d comando(s) ejecutados\n", len(o.Done), len(p.Steps()))
+	if o.Failed != nil {
+		fmt.Fprintf(errW, "\n  falló: %s\n  %v\n", o.Failed.Line(), o.Err)
+	}
+
+	fmt.Fprintf(w, "  estado     %s\n", engramStateLabel(o.Status))
+	if o.Status.Version != "" {
+		fmt.Fprintf(w, "  versión    %s\n", o.Status.Version)
+	}
+
+	// An unconfirmed final state goes to stderr, next to the other warnings:
+	// every command succeeding is not the same as the plugin being ready, and
+	// the state line above is informational output a pipe may not be reading.
+	if o.Err == nil && !o.Verified() {
+		fmt.Fprintf(errW, "\n  advertencia: los comandos se ejecutaron, pero no se pudo confirmar\n"+
+			"    el estado final del plugin. Revisar con `claude plugin list`.\n")
+	}
+
+	if !o.Status.EngramBinaryFound() {
+		fmt.Fprintf(errW, "\n  advertencia: el binario engram no está en el PATH.\n"+
+			"    El plugin queda instalado, pero sus hooks fallan hasta que esté.\n")
+	}
+	if runtime.GOOS == "windows" {
+		fmt.Fprintf(errW, "\n  advertencia: en Windows los hooks necesitan Git Bash o WSL.\n"+
+			"    Sin uno de los dos se instalan pero nunca se ejecutan.\n")
+	}
+
+	fmt.Fprintf(w, "\n  reiniciar Claude Code para que tome el plugin.\n")
+	// Deliberately not run by deal-kit: it changes permissions and other
+	// global files, which is a decision of its own.
+	fmt.Fprintf(w, "  falta ejecutar `engram setup claude-code` para registrar el servidor MCP.\n")
+}
+
+// engramStateLabel names a state for the plain output.
+func engramStateLabel(st engram.Status) string {
+	switch st.State {
+	case engram.StateReady:
+		return "instalado y habilitado (alcance " + engram.Scope + ")"
+	case engram.StatePluginDisabled:
+		return "instalado pero deshabilitado"
+	case engram.StatePluginMissing:
+		return "marketplace registrado, plugin sin instalar"
+	case engram.StateMarketplaceMissing:
+		return "el marketplace engram no está registrado"
+	case engram.StateMarketplaceConflict:
+		return "conflicto: otro marketplace llamado engram (" + st.FoundRepo + ")"
+	case engram.StateClaudeMissing:
+		return "claude no está en el PATH"
+	default:
+		if st.Err != nil {
+			return "desconocido: " + st.Err.Error()
+		}
+		return "desconocido"
 	}
 }

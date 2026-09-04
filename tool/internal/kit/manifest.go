@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -33,14 +34,40 @@ type rawArtifact struct {
 	NPM       map[string]string `yaml:"npm"`
 }
 
+// supportedManifestVersions enumerates every kit.yaml schema version this CLI
+// can read. It is an explicit set rather than a min/max range, matching how the
+// artifact `type` switch below enumerates its accepted values: a range would
+// also promise support for gaps that were never released.
+var supportedManifestVersions = []int{1, 2}
+
+func supportedManifestVersion(v int) bool {
+	for _, supported := range supportedManifestVersions {
+		if v == supported {
+			return true
+		}
+	}
+	return false
+}
+
+func supportedManifestVersionList() string {
+	parts := make([]string, len(supportedManifestVersions))
+	for i, v := range supportedManifestVersions {
+		parts[i] = strconv.Itoa(v)
+	}
+	return strings.Join(parts, " o ")
+}
+
 // ParseManifest reads and validates a kit.yaml.
 func ParseManifest(data []byte) (*Manifest, error) {
 	var raw rawManifest
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("kit.yaml: %w", err)
 	}
-	if raw.Version != 1 {
-		return nil, fmt.Errorf("kit.yaml: versión %d no soportada (se esperaba 1)", raw.Version)
+	if !supportedManifestVersion(raw.Version) {
+		return nil, fmt.Errorf(
+			"kit.yaml: versión %d no soportada (se esperaba %s); ejecutar «deal-kit self-update» para leer un kit más nuevo",
+			raw.Version, supportedManifestVersionList(),
+		)
 	}
 	m := &Manifest{
 		ProjectTypes:   make(map[ProjectType]ProjectTypeSpec, len(raw.ProjectTypes)),

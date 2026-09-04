@@ -34,7 +34,7 @@ deal-kit                          # or browse the catalog interactively
 
 Artifact IDs are `ui-kit/<file name without extension>`: `ui-kit/button`, `ui-kit/data-table`, `ui-kit/input-otp`. Run `deal-kit status` to see what this project already has.
 
-Two things `deal-kit init` installs for you and everything depends on: `ui-kit/base` (which provides `cn()` and the storage adapter) and `ui-kit/theme` (`src/theme.css`).
+Two things `deal-kit init` installs for you and everything depends on: `ui-kit/base` (which provides `cn()` and the storage adapter) and `ui-kit/theme` (`src/app/theme.css`).
 
 ## Imports
 
@@ -47,7 +47,7 @@ import { cn } from '@/shared/lib/utils'
 import { useIsMobile } from '@/shared/hooks/use-mobile'
 ```
 
-`src/theme.css` must be imported once at the app entry point, or every component renders unstyled.
+`src/app/theme.css` must be imported once at the app entry point, or every component renders unstyled.
 
 ## Changing a component that came from the catalog
 
@@ -275,7 +275,7 @@ This is the pattern for any environment-specific need the catalog grows: a plugg
 
 ## Theming
 
-`src/theme.css` defines the semantic tokens (`--background`, `--primary`, `--radius`, …) that every component reads through Tailwind classes. To re-theme, edit the token **values**; never touch a component's classes.
+`src/app/theme.css` defines the semantic tokens (`--background`, `--primary`, `--radius`, …) that every component reads through Tailwind classes. To re-theme, edit the token **values**; never touch a component's classes.
 
 **Gotcha:** tokens are stored as **HSL triplets** (`--border: 220 13% 91%`, with no `hsl()` wrapper) and consumed as `hsl(var(--border))`. A theme preset pasted in with full `hsl(...)` or `oklch(...)` strings renders **fully transparent with no error**. A previous project lost time to exactly this on the toast component. Keep new tokens in bare-triplet format.
 

@@ -93,7 +93,7 @@ artifacts:
     applies_to: [web]
     group: "Foundation"
     src: ui-kit/theme.css
-    dest: "{src}/theme.css"
+    dest: "{src}/app/theme.css"
 
   - id: ui-kit/accordion
     type: component

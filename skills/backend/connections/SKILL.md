@@ -1,6 +1,6 @@
 ---
 name: backend-connections
-description: "Where every kind of inbound and outbound connection lives in a CRM DEAL NestJS microservice — cache, other services, external APIs, webhooks, realtime streams, events — and the rule each one follows. Use when integrating Redis, SNS/SQS, another DEAL service, a bank or SAP API, an incoming webhook, or a server push, and when deciding which layer a piece of integration code belongs in."
+description: "Where every kind of inbound and outbound connection lives in a CRM DEAL NestJS microservice — cache, other services, external APIs, webhooks, realtime streams, events — and the rule each one follows. Use when integrating Redis, SNS/SQS, another DEAL service, a bank or SAP API, an incoming webhook, or a server push, and when deciding which layer a piece of integration code belongs in. Also covers Redis-backed rate limiting and the Fargate health checks."
 ---
 
 # Connection rules
@@ -17,7 +17,7 @@ The one exception is direction: something arriving from outside enters through `
 
 | Concern | Lives in | Rule |
 | --- | --- | --- |
-| Redis | `infrastructure/cache/` | Behind a `CachePort`. Also carries SQS event idempotency. |
+| Redis | `infrastructure/cache/` | Behind a `CachePort`. Also carries SQS event idempotency and the rate-limit counters. |
 | Other DEAL microservices | `infrastructure/clients/` | Direct over internal DNS with a service token. **Never through the Gateway.** |
 | External APIs (bank, SAP, Azure) | `infrastructure/integrations/` | Anti-corruption layer + circuit breaker + Secrets Manager. |
 | Database | `infrastructure/persistence/` | TypeORM entities and repositories, behind a repository port. |
@@ -27,7 +27,8 @@ The one exception is direction: something arriving from outside enters through `
 | Incoming HTTP | `interface/controllers/` | Validated with Zod. The Gateway already checked the JWT. |
 | Incoming webhook | `interface/webhooks/` | Validated by the provider's **signature**, not a JWT. Idempotent. |
 | Server push | `interface/realtime/` | SSE (`@Sse`) or WebSocket. The Gateway passes the stream through unbuffered. |
-| Health check | `interface/health/` | Required by ECS Fargate. |
+| Health check | `src/health/` | Liveness and readiness. Required by ECS Fargate. |
+| Rate limiting | `common/guards/` | Throttler guard, counters in Redis, keyed off `X-Forwarded-For`. |
 
 ## North-South and East-West
 
@@ -38,6 +39,14 @@ Two kinds of traffic, and they do not use the same door.
 **East-West** is service to service, inside the private subnet. It goes **direct**, over internal DNS with a service token — not through the Gateway. Routing internal calls through the public door adds latency and turns the Gateway into a single point of failure.
 
 Prefer an **event** over a direct call. If service A does not need service B's answer to finish its own work, publish to SNS and let B consume from SQS. A direct client couples the two services' availability; an event does not.
+
+## Rate limiting
+
+The Gateway rate limits North-South traffic, and the service limits again in `common/guards/` with a custom throttler guard.
+
+Its counters live in **Redis**, not in process memory. The service runs as several Fargate tasks, so an in-memory counter would let each task allow the full quota on its own.
+
+It keys off **`X-Forwarded-For`**. Behind the Gateway the socket's peer address is the Gateway itself, so every request would otherwise look like one client.
 
 ## Talking to another DEAL service
 

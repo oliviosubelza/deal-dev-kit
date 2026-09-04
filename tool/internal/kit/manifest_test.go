@@ -334,6 +334,129 @@ func ids(as []Artifact) []string {
 	return out
 }
 
+func TestCheckFrontmatterName(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    string
+		a       Artifact
+		wantErr string
+	}{
+		{
+			name: "matching name passes",
+			data: "---\nname: backend-review-security\ndescription: audits security\n---\n",
+			a:    Artifact{ID: "backend/review-security"},
+		},
+		{
+			name:    "mismatched name fails",
+			data:    "---\nname: review-security\ndescription: audits security\n---\n",
+			a:       Artifact{ID: "backend/review-security"},
+			wantErr: "must declare",
+		},
+		{
+			name:    "longer name with matching prefix fails",
+			data:    "---\nname: backend-review-security-v2\ndescription: audits security\n---\n",
+			a:       Artifact{ID: "backend/review-security"},
+			wantErr: "must declare",
+		},
+		{
+			name:    "name present only in body fails",
+			data:    "---\ndescription: audits security\n---\nSee name: backend-review-security in the docs.\n",
+			a:       Artifact{ID: "backend/review-security"},
+			wantErr: "must declare",
+		},
+		{
+			name:    "no frontmatter block fails",
+			data:    "no frontmatter here\nname: backend-review-security\n",
+			a:       Artifact{ID: "backend/review-security"},
+			wantErr: "frontmatter",
+		},
+		{
+			name:    "unterminated frontmatter block fails",
+			data:    "---\nname: backend-review-security\ndescription: audits security\n",
+			a:       Artifact{ID: "backend/review-security"},
+			wantErr: "frontmatter",
+		},
+		{
+			name:    "empty name value fails",
+			data:    "---\nname:\ndescription: audits security\n---\n",
+			a:       Artifact{ID: "backend/review-security"},
+			wantErr: "must declare",
+		},
+		{
+			name: "quoted name passes",
+			data: "---\nname: \"backend-review-security\"\ndescription: audits security\n---\n",
+			a:    Artifact{ID: "backend/review-security"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := CheckFrontmatterName([]byte(tt.data), tt.a)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected an error containing %q, got none", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %q, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestCheckDescriptionPresent(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    string
+		wantErr string
+	}{
+		{
+			name: "description present passes",
+			data: "---\ndescription: writes a Zod schema\n---\n",
+		},
+		{
+			name:    "description missing fails",
+			data:    "---\nname: generate-schema\n---\n",
+			wantErr: "description",
+		},
+		{
+			name:    "x-description alone fails",
+			data:    "---\nx-description: not the real key\n---\n",
+			wantErr: "description",
+		},
+		{
+			name:    "description present only in body fails",
+			data:    "---\nname: generate-schema\n---\nBody mentions description: here.\n",
+			wantErr: "description",
+		},
+		{
+			name:    "empty description value fails",
+			data:    "---\ndescription:\n---\n",
+			wantErr: "description",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := CheckDescriptionPresent([]byte(tt.data))
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected an error containing %q, got none", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %q, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestDuplicateCommandLeafDetectsCollision(t *testing.T) {
 	m := &Manifest{
 		Artifacts: []Artifact{

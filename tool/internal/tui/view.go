@@ -516,3 +516,63 @@ func depSpecs(deps map[string]string) []string {
 	sortStrings(out)
 	return out
 }
+
+// --- shared layout helpers ---
+
+// proseAt word-wraps sentences to a width and renders each resulting line on
+// its own. A \n inside a single Render would be padded with spaces on every
+// line, and an over-wide line would be wrapped by the panel instead.
+func proseAt(width int, sentences ...string) []string {
+	var out []string
+	for _, s := range sentences {
+		for _, line := range wrapWords(s, width) {
+			out = append(out, subtle.Render(clip(line, width)))
+		}
+	}
+	return out
+}
+
+// keyLinesAt lays out key/description pairs across as many lines as the panel
+// needs. A single keys() call is one string that the panel would wrap
+// mid-legend on a narrow terminal.
+func keyLinesAt(width int, pairs ...string) []string {
+	var out []string
+	var chunk []string
+	flush := func() {
+		if len(chunk) > 0 {
+			out = append(out, keys(chunk...))
+			chunk = nil
+		}
+	}
+	for i := 0; i+1 < len(pairs); i += 2 {
+		next := append(append([]string{}, chunk...), pairs[i], pairs[i+1])
+		if len(chunk) > 0 && lipgloss.Width(keys(next...)) > width {
+			flush()
+			next = []string{pairs[i], pairs[i+1]}
+		}
+		chunk = next
+	}
+	flush()
+	return out
+}
+
+func (m Model) prose(sentences ...string) []string { return proseAt(m.content(), sentences...) }
+
+func (m Model) keyLines(pairs ...string) []string { return keyLinesAt(m.content(), pairs...) }
+
+// clip truncates to a width, marking the cut. A token longer than the panel
+// cannot be word-wrapped, and letting it through makes the panel wrap it into
+// a padded remnant that looks like a line someone intended.
+func clip(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= width {
+		return s
+	}
+	if width == 1 {
+		return "…"
+	}
+	return string(r[:width-1]) + "…"
+}

@@ -62,25 +62,25 @@ func (c *Client) Latest() (Release, error) {
 	url := fmt.Sprintf("%s/repos/%s/releases/latest", c.BaseURL, c.Repo)
 	resp, err := c.HTTP.Get(url)
 	if err != nil {
-		return Release{}, fmt.Errorf("checking for a newer version: %w", err)
+		return Release{}, fmt.Errorf("al buscar una versión más nueva: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return Release{}, fmt.Errorf("no published release found for %s", c.Repo)
+		return Release{}, fmt.Errorf("no se encontró ninguna versión publicada para %s", c.Repo)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return Release{}, fmt.Errorf("checking for a newer version: %s", resp.Status)
+		return Release{}, fmt.Errorf("al buscar una versión más nueva: %s", resp.Status)
 	}
 
 	var body struct {
 		TagName string `json:"tag_name"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return Release{}, fmt.Errorf("reading the release: %w", err)
+		return Release{}, fmt.Errorf("no se pudo leer la versión publicada: %w", err)
 	}
 	if body.TagName == "" {
-		return Release{}, fmt.Errorf("the latest release has no tag")
+		return Release{}, fmt.Errorf("la última versión publicada no tiene tag")
 	}
 
 	base := fmt.Sprintf("%s/%s/releases/download/%s", c.DownloadURL, c.Repo, body.TagName)
@@ -96,20 +96,20 @@ func (c *Client) Latest() (Release, error) {
 func (c *Client) Fetch(r Release) ([]byte, error) {
 	binary, err := c.get(r.AssetURL)
 	if err != nil {
-		return nil, fmt.Errorf("downloading %s: %w", AssetName(), err)
+		return nil, fmt.Errorf("al descargar %s: %w", AssetName(), err)
 	}
 	sums, err := c.get(r.ChecksURL)
 	if err != nil {
-		return nil, fmt.Errorf("downloading checksums: %w", err)
+		return nil, fmt.Errorf("al descargar los checksums: %w", err)
 	}
 
 	want, ok := checksumFor(string(sums), AssetName())
 	if !ok {
-		return nil, fmt.Errorf("no checksum published for %s", AssetName())
+		return nil, fmt.Errorf("no hay checksum publicado para %s", AssetName())
 	}
 	sum := sha256.Sum256(binary)
 	if got := hex.EncodeToString(sum[:]); !strings.EqualFold(got, want) {
-		return nil, fmt.Errorf("checksum mismatch for %s (expected %s, got %s)", AssetName(), want, got)
+		return nil, fmt.Errorf("el checksum de %s no coincide (se esperaba %s, se obtuvo %s)", AssetName(), want, got)
 	}
 	return binary, nil
 }
@@ -150,7 +150,7 @@ func Replace(path string, newBinary []byte) error {
 	// filesystem, which is atomic, rather than a copy that can half-finish.
 	tmp, err := os.CreateTemp(dir, ".deal-kit-*")
 	if err != nil {
-		return fmt.Errorf("cannot write to %s: %w", dir, err)
+		return fmt.Errorf("no se pudo escribir en %s: %w", dir, err)
 	}
 	staged := tmp.Name()
 	defer os.Remove(staged)
@@ -169,14 +169,14 @@ func Replace(path string, newBinary []byte) error {
 	old := path + ".old"
 	os.Remove(old) // a previous update may have left one behind
 	if err := os.Rename(path, old); err != nil {
-		return fmt.Errorf("cannot move the current binary aside: %w", err)
+		return fmt.Errorf("no se pudo apartar el binario actual: %w", err)
 	}
 	if err := os.Rename(staged, path); err != nil {
 		// Put the working binary back rather than leaving nothing installed.
 		if rollback := os.Rename(old, path); rollback != nil {
-			return fmt.Errorf("update failed and the old binary could not be restored from %s: %w", old, err)
+			return fmt.Errorf("la actualización falló y no se pudo restaurar el binario anterior desde %s: %w", old, err)
 		}
-		return fmt.Errorf("installing the new binary: %w", err)
+		return fmt.Errorf("al instalar el binario nuevo: %w", err)
 	}
 	os.Remove(old)
 	return nil

@@ -69,8 +69,8 @@ func (f *File) Save(projectDir string) error {
 	if err != nil {
 		return err
 	}
-	header := []byte("# Managed by deal-kit. Records every file the CLI owns in this project.\n" +
-		"# Do not edit by hand: the hashes are how deal-kit detects local changes.\n")
+	header := []byte("# Gestionado por deal-kit. Registra cada archivo que el CLI posee en este proyecto.\n" +
+		"# No editar a mano: los hashes son la forma en que deal-kit detecta cambios locales.\n")
 	return os.WriteFile(filepath.Join(projectDir, Name), append(header, data...), 0o644)
 }
 

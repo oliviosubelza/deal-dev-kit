@@ -45,7 +45,7 @@ func TestParseManifestRejectsInvalidInput(t *testing.T) {
 		{
 			name:    "unsupported version",
 			yaml:    "version: 2",
-			wantErr: "unsupported version",
+			wantErr: "versión 2 no soportada",
 		},
 		{
 			name: "duplicate artifact id",
@@ -55,7 +55,7 @@ project_types: { web: { match: crm-deal-web } }
 artifacts:
   - { id: web/ui, type: skill, src: a }
   - { id: web/ui, type: skill, src: b }`,
-			wantErr: "duplicate artifact",
+			wantErr: "artefacto duplicado",
 		},
 		{
 			name: "component without dest",
@@ -64,7 +64,7 @@ version: 1
 project_types: { web: { match: crm-deal-web } }
 artifacts:
   - { id: ui-kit/base, type: component, src: ui-kit/lib }`,
-			wantErr: "has no dest",
+			wantErr: "no tiene dest",
 		},
 		{
 			name: "skill declaring dest",
@@ -73,7 +73,7 @@ version: 1
 project_types: { web: { match: crm-deal-web } }
 artifacts:
   - { id: web/ui, type: skill, src: skills/web/ui, dest: somewhere }`,
-			wantErr: "must not declare dest",
+			wantErr: "no debe declarar dest",
 		},
 		{
 			name: "command declaring dest",
@@ -82,7 +82,7 @@ version: 1
 project_types: { web: { match: crm-deal-web } }
 artifacts:
   - { id: web/generate-schema, type: command, src: commands/web/generate-schema.md, dest: somewhere }`,
-			wantErr: "must not declare dest",
+			wantErr: "no debe declarar dest",
 		},
 		{
 			name: "agent declaring dest",
@@ -91,7 +91,7 @@ version: 1
 project_types: { web: { match: crm-deal-web } }
 artifacts:
   - { id: backend/review-security, type: agent, src: agents/backend/review-security.md, dest: somewhere }`,
-			wantErr: "must not declare dest",
+			wantErr: "no debe declarar dest",
 		},
 		{
 			name: "unknown artifact type",
@@ -100,7 +100,7 @@ version: 1
 project_types: { web: { match: crm-deal-web } }
 artifacts:
   - { id: web/ui, type: recipe, src: a }`,
-			wantErr: "unknown type",
+			wantErr: "tiene un type desconocido",
 		},
 		{
 			name: "applies_to unknown project type",
@@ -109,7 +109,7 @@ version: 1
 project_types: { web: { match: crm-deal-web } }
 artifacts:
   - { id: web/ui, type: skill, applies_to: [desktop], src: a }`,
-			wantErr: "unknown project type",
+			wantErr: "tipo de proyecto desconocido",
 		},
 		{
 			name: "requires unknown artifact",
@@ -118,7 +118,7 @@ version: 1
 project_types: { web: { match: crm-deal-web } }
 artifacts:
   - { id: ui-kit/button, type: component, src: a, dest: b, requires: [ui-kit/ghost] }`,
-			wantErr: "requires unknown artifact",
+			wantErr: "requiere un artefacto desconocido",
 		},
 		{
 			name: "profile references artifact of another project type",
@@ -131,14 +131,14 @@ profiles:
   web: [backend/architecture]
 artifacts:
   - { id: backend/architecture, type: skill, applies_to: [backend], src: a }`,
-			wantErr: "does not apply to web",
+			wantErr: "que no aplica a web",
 		},
 		{
 			name: "project type without match pattern",
 			yaml: `
 version: 1
 project_types: { web: {} }`,
-			wantErr: "no match pattern",
+			wantErr: "no tiene patrón match",
 		},
 	}
 
@@ -230,7 +230,7 @@ func TestResolveRejectsArtifactFromAnotherProjectType(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error installing a backend skill into a web project")
 	}
-	if !strings.Contains(err.Error(), "does not apply to project type web") {
+	if !strings.Contains(err.Error(), "no aplica al tipo de proyecto web") {
 		t.Errorf("error = %q, want it to name the project type mismatch", err)
 	}
 }
@@ -350,19 +350,19 @@ func TestCheckFrontmatterName(t *testing.T) {
 			name:    "mismatched name fails",
 			data:    "---\nname: review-security\ndescription: audits security\n---\n",
 			a:       Artifact{ID: "backend/review-security"},
-			wantErr: "must declare",
+			wantErr: "debe declarar",
 		},
 		{
 			name:    "longer name with matching prefix fails",
 			data:    "---\nname: backend-review-security-v2\ndescription: audits security\n---\n",
 			a:       Artifact{ID: "backend/review-security"},
-			wantErr: "must declare",
+			wantErr: "debe declarar",
 		},
 		{
 			name:    "name present only in body fails",
 			data:    "---\ndescription: audits security\n---\nSee name: backend-review-security in the docs.\n",
 			a:       Artifact{ID: "backend/review-security"},
-			wantErr: "must declare",
+			wantErr: "debe declarar",
 		},
 		{
 			name:    "no frontmatter block fails",
@@ -380,7 +380,7 @@ func TestCheckFrontmatterName(t *testing.T) {
 			name:    "empty name value fails",
 			data:    "---\nname:\ndescription: audits security\n---\n",
 			a:       Artifact{ID: "backend/review-security"},
-			wantErr: "must declare",
+			wantErr: "debe declarar",
 		},
 		{
 			name: "quoted name passes",
@@ -567,7 +567,7 @@ func TestResolveRejectsAnUnknownArtifact(t *testing.T) {
 
 	if _, err := m.Resolve("web", []string{"web/ui", "general/pr-workflow"}); err == nil {
 		t.Fatal("Resolve() = nil, want an error for an id the manifest does not declare")
-	} else if !strings.Contains(err.Error(), `unknown artifact "general/pr-workflow"`) {
+	} else if !strings.Contains(err.Error(), `artefacto desconocido "general/pr-workflow"`) {
 		t.Errorf("error = %v, want unknown artifact", err)
 	}
 }
@@ -585,7 +585,7 @@ artifacts:
 	if err == nil {
 		t.Fatal("ParseManifest() = nil, want an error for a profile naming an unknown artifact")
 	}
-	if !strings.Contains(err.Error(), "references unknown artifact") {
+	if !strings.Contains(err.Error(), "referencia un artefacto desconocido") {
 		t.Errorf("error = %v, want references unknown artifact", err)
 	}
 }

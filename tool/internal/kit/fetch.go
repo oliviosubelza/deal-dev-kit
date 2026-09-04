@@ -43,18 +43,18 @@ func Fetch(src Source) (Checkout, error) {
 
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		if src.Offline {
-			return Checkout{}, fmt.Errorf("no cached copy of %s and --offline was given", src.Repo)
+			return Checkout{}, fmt.Errorf("no hay copia en caché de %s y se pasó --offline", src.Repo)
 		}
 		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 			return Checkout{}, err
 		}
 		// A blobless clone pulls history cheaply and file contents on demand.
 		if out, err := git("", "clone", "--filter=blob:none", "--quiet", src.Repo, dir); err != nil {
-			return Checkout{}, fmt.Errorf("cloning %s: %w\n%s", src.Repo, err, out)
+			return Checkout{}, fmt.Errorf("al clonar %s: %w\n%s", src.Repo, err, out)
 		}
 	} else if !src.Offline {
 		if out, err := git(dir, "fetch", "--tags", "--prune", "--quiet", "origin"); err != nil {
-			return Checkout{}, fmt.Errorf("fetching %s: %w\n%s", src.Repo, err, out)
+			return Checkout{}, fmt.Errorf("al hacer fetch de %s: %w\n%s", src.Repo, err, out)
 		}
 	}
 
@@ -66,7 +66,7 @@ func Fetch(src Source) (Checkout, error) {
 		}
 	}
 	if out, err := git(dir, "checkout", "--detach", "--quiet", ref); err != nil {
-		return Checkout{}, fmt.Errorf("checking out %q: %w\n%s", ref, err, out)
+		return Checkout{}, fmt.Errorf("al hacer checkout de %q: %w\n%s", ref, err, out)
 	}
 
 	version := ref

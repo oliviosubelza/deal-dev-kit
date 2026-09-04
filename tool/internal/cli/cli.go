@@ -45,7 +45,7 @@ type Env struct {
 }
 
 // ErrAborted is returned when the user declines to apply a plan.
-var ErrAborted = errors.New("aborted")
+var ErrAborted = errors.New("cancelado")
 
 // kit resolves the kit to work against, cloning or fetching unless a local
 // directory was given.
@@ -66,7 +66,7 @@ func (e Env) ProjectRoot() (string, error) {
 	// opt-in: without it, a mistyped path would quietly grow a source tree.
 	if e.Here {
 		if _, err := os.Stat(filepath.Join(dir, "kit.yaml")); err == nil {
-			return "", fmt.Errorf("%s is the kit itself: --here cannot install the kit into the kit", dir)
+			return "", fmt.Errorf("%s es el kit en sí: --here no puede instalar el kit dentro del kit", dir)
 		}
 		return dir, nil
 	}
@@ -77,9 +77,9 @@ func (e Env) ProjectRoot() (string, error) {
 		if _, err := os.Stat(filepath.Join(dir, "kit.yaml")); err == nil {
 			// Do not suggest a concrete sibling directory: naming one that may
 			// not exist turns the message into a guess the user then chases.
-			return "", fmt.Errorf("%s is the kit itself, not a project.\n"+
-				"  The kit is what you install FROM. Change into the project you\n"+
-				"  want to install INTO, then run deal-kit there.", dir)
+			return "", fmt.Errorf("%s es el kit en sí, no un proyecto.\n"+
+				"  El kit es DESDE donde se instala. Hay que entrar al proyecto\n"+
+				"  EN el que se quiere instalar y ejecutar deal-kit ahí.", dir)
 		}
 		for _, marker := range []string{lockfile.Name, "package.json", ".git"} {
 			if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
@@ -91,10 +91,10 @@ func (e Env) ProjectRoot() (string, error) {
 			// Name --here on its own, the way the user just invoked the tool:
 			// pointing only at `init --here` reads as "this is not for you"
 			// when the browser accepts the same flag.
-			return "", fmt.Errorf("not inside a project: no package.json, .git or %s found above %s.\n"+
-				"  To work in this directory anyway, add --here:\n"+
+			return "", fmt.Errorf("no se está dentro de un proyecto: no se encontró package.json, .git ni %s por encima de %s.\n"+
+				"  Para trabajar igual en este directorio, agregar --here:\n"+
 				"    deal-kit --here\n"+
-				"  Or start the project first, then run deal-kit again:\n"+
+				"  O crear primero el proyecto y volver a ejecutar deal-kit:\n"+
 				"    git init  ·  pnpm init  ·  pnpm create vite",
 				lockfile.Name, e.Cwd)
 		}
@@ -115,7 +115,7 @@ func Init(e Env, typeOverride string) error {
 	}
 	m, err := kit.LoadManifest(ck.Dir)
 	if err != nil {
-		return fmt.Errorf("reading the kit: %w", err)
+		return fmt.Errorf("no se pudo leer el kit: %w", err)
 	}
 
 	lock, existed, err := lockfile.Load(root)
@@ -131,7 +131,7 @@ func Init(e Env, typeOverride string) error {
 
 	ids := m.Profiles[pt]
 	if len(ids) == 0 {
-		return fmt.Errorf("project type %s has no profile in kit.yaml", pt)
+		return fmt.Errorf("el tipo de proyecto %s no tiene perfil en kit.yaml", pt)
 	}
 	// An existing lockfile keeps whatever it already had installed, minus
 	// anything the manifest no longer declares.
@@ -145,11 +145,11 @@ func Init(e Env, typeOverride string) error {
 		roots = lock.Roots // a project may override the standard layout
 	}
 
-	fmt.Fprintf(e.Stdout, "  project   %s\n", root)
-	fmt.Fprintf(e.Stdout, "  detected  %s\n", pt)
-	fmt.Fprintf(e.Stdout, "  kit       %s\n", ck.Version)
-	fmt.Fprintf(e.Stdout, "  roots     %s\n", formatRoots(roots))
-	fmt.Fprintf(e.Stdout, "  profile   %s\n\n", pt)
+	fmt.Fprintf(e.Stdout, "  proyecto   %s\n", root)
+	fmt.Fprintf(e.Stdout, "  detectado  %s\n", pt)
+	fmt.Fprintf(e.Stdout, "  kit        %s\n", ck.Version)
+	fmt.Fprintf(e.Stdout, "  raíces     %s\n", formatRoots(roots))
+	fmt.Fprintf(e.Stdout, "  perfil     %s\n\n", pt)
 
 	lock.ProjectType = string(pt)
 	lock.Roots = roots
@@ -159,7 +159,7 @@ func Init(e Env, typeOverride string) error {
 // Add installs additional artifacts into an initialised project.
 func Add(e Env, ids []string) error {
 	if len(ids) == 0 {
-		return errors.New("nothing to add: name at least one artifact (see `deal-kit status`)")
+		return errors.New("no hay nada que agregar: indicar al menos un artefacto (ver `deal-kit status`)")
 	}
 	root, err := e.ProjectRoot()
 	if err != nil {
@@ -171,18 +171,18 @@ func Add(e Env, ids []string) error {
 	}
 	m, err := kit.LoadManifest(ck.Dir)
 	if err != nil {
-		return fmt.Errorf("reading the kit: %w", err)
+		return fmt.Errorf("no se pudo leer el kit: %w", err)
 	}
 	lock, existed, err := lockfile.Load(root)
 	if err != nil {
 		return err
 	}
 	if !existed {
-		return fmt.Errorf("this project has no %s yet: run `deal-kit init` first", lockfile.Name)
+		return fmt.Errorf("este proyecto todavía no tiene %s: ejecutar `deal-kit init` primero", lockfile.Name)
 	}
 	pt := kit.ProjectType(lock.ProjectType)
 	if _, ok := m.ProjectTypes[pt]; !ok {
-		return fmt.Errorf("%s records unknown project type %q", lockfile.Name, lock.ProjectType)
+		return fmt.Errorf("%s registra un tipo de proyecto desconocido %q", lockfile.Name, lock.ProjectType)
 	}
 
 	// The ids the user named go through unfiltered: a typo there must fail,
@@ -206,7 +206,7 @@ func Status(e Env) error {
 		return err
 	}
 	if !existed {
-		fmt.Fprintf(e.Stdout, "no %s in %s\n\nrun `deal-kit init` to set this project up\n",
+		fmt.Fprintf(e.Stdout, "no hay %s en %s\n\nejecutar `deal-kit init` para configurar este proyecto\n",
 			lockfile.Name, filepath.Base(root))
 		return nil
 	}
@@ -216,7 +216,7 @@ func Status(e Env) error {
 	}
 	m, err := kit.LoadManifest(ck.Dir)
 	if err != nil {
-		return fmt.Errorf("reading the kit: %w", err)
+		return fmt.Errorf("no se pudo leer el kit: %w", err)
 	}
 
 	pt := kit.ProjectType(lock.ProjectType)
@@ -230,12 +230,12 @@ func Status(e Env) error {
 
 	pinned := lock.KitVersion
 	if pinned == "" {
-		pinned = "(unpinned)"
+		pinned = "(sin fijar)"
 	}
-	fmt.Fprintf(e.Stdout, "  project   %s\n", root)
-	fmt.Fprintf(e.Stdout, "  kit       %s\n  type      %s\n", pinned, pt)
+	fmt.Fprintf(e.Stdout, "  proyecto   %s\n", root)
+	fmt.Fprintf(e.Stdout, "  kit        %s\n  tipo       %s\n", pinned, pt)
 	if ck.Version != pinned && ck.Version != "local" {
-		fmt.Fprintf(e.Stdout, "  available %s  (run `deal-kit update`)\n", ck.Version)
+		fmt.Fprintf(e.Stdout, "  disponible %s  (ejecutar `deal-kit update`)\n", ck.Version)
 	}
 	fmt.Fprintln(e.Stdout)
 
@@ -279,7 +279,7 @@ func syncArtifacts(e Env, root string, ck kit.Checkout, m *kit.Manifest, lock *l
 	renderPlan(e.Stdout, p, manager, hasManager, e.NoDeps)
 
 	if blocked := p.Blocked(); len(blocked) > 0 {
-		return fmt.Errorf("%d file(s) need attention before anything is written; resolve them and run again", len(blocked))
+		return fmt.Errorf("%d archivo(s) requieren atención antes de escribir nada; resolverlos y volver a ejecutar", len(blocked))
 	}
 	if len(p.Changes()) == 0 {
 		// The pin can still move even when no file changes.
@@ -288,18 +288,18 @@ func syncArtifacts(e Env, root string, ck kit.Checkout, m *kit.Manifest, lock *l
 			if err := lock.Save(root); err != nil {
 				return err
 			}
-			fmt.Fprintf(e.Stdout, "\n  already up to date (pinned to %s)\n", ck.Version)
+			fmt.Fprintf(e.Stdout, "\n  ya está actualizado (fijado en %s)\n", ck.Version)
 			return nil
 		}
-		fmt.Fprintln(e.Stdout, "\n  already up to date")
+		fmt.Fprintln(e.Stdout, "\n  ya está actualizado")
 		return nil
 	}
 	if e.DryRun {
-		fmt.Fprintln(e.Stdout, "\n  --dry-run: nothing was written")
+		fmt.Fprintln(e.Stdout, "\n  --dry-run: no se escribió nada")
 		return nil
 	}
 	if !e.AssumeYes {
-		ok, err := confirm(e, "apply?")
+		ok, err := confirm(e, "¿aplicar?")
 		if err != nil {
 			return err
 		}
@@ -320,10 +320,10 @@ func syncArtifacts(e Env, root string, ck kit.Checkout, m *kit.Manifest, lock *l
 
 	if len(p.Deps) > 0 && !e.NoDeps {
 		if !hasManager {
-			fmt.Fprintf(e.Stderr, "\n  warning: no package manager detected; install these yourself:\n    %s\n",
+			fmt.Fprintf(e.Stderr, "\n  advertencia: no se detectó ningún package manager; instalar estas dependencias a mano:\n    %s\n",
 				strings.Join(pm.InstallArgs(pm.NPM, p.Deps)[2:], " "))
 		} else if err := pm.Install(root, manager, p.Deps, e.Stdout); err != nil {
-			return fmt.Errorf("dependency install failed: %w", err)
+			return fmt.Errorf("falló la instalación de dependencias: %w", err)
 		}
 	}
 	renderSummary(e.Stdout, root, p)
@@ -335,7 +335,7 @@ func resolveProjectType(m *kit.Manifest, root, override string, lock *lockfile.F
 	if override != "" {
 		pt := kit.ProjectType(override)
 		if _, ok := m.ProjectTypes[pt]; !ok {
-			return "", fmt.Errorf("unknown project type %q (known: %s)", override, strings.Join(projectTypeNames(m), ", "))
+			return "", fmt.Errorf("tipo de proyecto desconocido %q (conocidos: %s)", override, strings.Join(projectTypeNames(m), ", "))
 		}
 		return pt, nil
 	}
@@ -345,7 +345,7 @@ func resolveProjectType(m *kit.Manifest, root, override string, lock *lockfile.F
 	if pt, ok := m.MatchProjectType(filepath.Base(root)); ok {
 		return pt, nil
 	}
-	return "", fmt.Errorf("could not tell what kind of project %q is; pass --type (one of: %s)",
+	return "", fmt.Errorf("no se pudo determinar qué tipo de proyecto es %q; pasar --type (uno de: %s)",
 		filepath.Base(root), strings.Join(projectTypeNames(m), ", "))
 }
 

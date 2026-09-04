@@ -26,21 +26,21 @@ type commandFlags struct {
 
 func commands() []command {
 	return []command{
-		{"browse", "Open the interactive browser",
+		{"browse", "Abrir el navegador interactivo",
 			func(e cli.Env, _ *flag.FlagSet, f *commandFlags) error { return cli.Interactive(e, f.typeOverride) }},
-		{"new", "Create a project with its official generator, then install",
+		{"new", "Crear un proyecto con su generador oficial y luego instalar",
 			func(e cli.Env, fs *flag.FlagSet, f *commandFlags) error { return cli.New(e, fs.Arg(0), f.typeOverride) }},
-		{"init", "Set up this project: detect its type and install its profile",
+		{"init", "Configurar este proyecto: detectar su tipo e instalar su perfil",
 			func(e cli.Env, _ *flag.FlagSet, f *commandFlags) error { return cli.Init(e, f.typeOverride) }},
-		{"add", "Install additional artifacts",
+		{"add", "Instalar artefactos adicionales",
 			func(e cli.Env, fs *flag.FlagSet, _ *commandFlags) error { return cli.Add(e, fs.Args()) }},
-		{"update", "Move the kit pin forward and re-sync",
+		{"update", "Avanzar la versión fijada del kit y re-sincronizar",
 			func(e cli.Env, _ *flag.FlagSet, _ *commandFlags) error { return cli.Update(e) }},
-		{"status", "Show what is installed, and whether it has drifted",
+		{"status", "Mostrar qué está instalado y si cambió",
 			func(e cli.Env, _ *flag.FlagSet, _ *commandFlags) error { return cli.Status(e) }},
-		{"doctor", "Report which external tools are installed",
+		{"doctor", "Informar qué herramientas externas están instaladas",
 			func(e cli.Env, _ *flag.FlagSet, _ *commandFlags) error { return cli.Doctor(e) }},
-		{"self-update", "Replace this binary with the latest release",
+		{"self-update", "Reemplazar este binario por la última versión publicada",
 			func(e cli.Env, _ *flag.FlagSet, f *commandFlags) error { return cli.SelfUpdate(e, f.check) }},
 	}
 }

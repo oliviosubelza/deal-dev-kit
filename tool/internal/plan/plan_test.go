@@ -255,7 +255,7 @@ func TestBlockedWhenAManagedFileWasEditedLocally(t *testing.T) {
 	if k != Blocked {
 		t.Fatalf("kind = %q, want blocked", k)
 	}
-	if reason != "edited locally since deal-kit wrote it" {
+	if reason != "editado localmente desde que deal-kit lo escribió" {
 		t.Errorf("reason = %q", reason)
 	}
 
@@ -291,7 +291,7 @@ func TestBlockedWhenAnUnmanagedFileIsInTheWay(t *testing.T) {
 	if k != Blocked {
 		t.Fatalf("kind = %q, want blocked for a file deal-kit never wrote", k)
 	}
-	if reason != "file exists but is not managed by deal-kit" {
+	if reason != "el archivo existe pero no está gestionado por deal-kit" {
 		t.Errorf("reason = %q", reason)
 	}
 }
@@ -477,7 +477,7 @@ func TestBuildBlocksAnOrphanedArtifactWithALocalEdit(t *testing.T) {
 	if k != Blocked {
 		t.Fatalf("kind = %q (%s), want blocked", k, reason)
 	}
-	if reason != "no longer part of this artifact, but edited locally" {
+	if reason != "ya no forma parte de este artefacto, pero fue editado localmente" {
 		t.Errorf("reason = %q, want the wording every other removal uses", reason)
 	}
 	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "skills", "general-pr-workflow", "SKILL.md")); err != nil {

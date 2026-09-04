@@ -19,20 +19,43 @@ import (
 // generator's own UX and breakage buys nothing.
 type generator struct {
 	// Args is the command line, with {dir} replaced by the target directory.
-	// Empty means no single non-interactive command exists, and the user is
-	// told what to run instead of being handed a half-automated wizard.
+	// Empty means the project type has no generator here at all, and the user
+	// is told what to run instead of being handed a half-automated wizard.
 	Args   []string
 	Manual string
 }
 
+// generatorFor returns the official generator for a project type.
+//
+// All three are commands deal-kit can run. An earlier version printed the
+// NestJS and Expo ones for the user to copy, on the belief that neither had a
+// non-interactive form; both scaffold from a single command line.
+//
+// What none of the three is, measured on a pty on node v20.20.2 / pnpm
+// 10.30.2, is silent: create-vite asks which linter, @nestjs/cli asks about
+// @nestjs/observe, create-expo-app asks for an SDK version. With stdin closed
+// each takes its default and exits 0, which is why they read as unattended in
+// a pipe. New hands the generator the real stdin, so on a terminal the user
+// answers the generator's own questions — its UX, not one reimplemented here.
+//
+// Every one of them skips its own dependency install. The kit install runs
+// right after, and when it has npm dependencies to add `pnpm add` resolves the
+// whole package.json in the same pass, so installing here first only pays for
+// a full resolve twice — before the kit install can report a problem, and
+// before the user has seen what deal-kit is about to write. create-vite never
+// installs anyway, so skipping is also what makes the three types match.
 func generatorFor(pt kit.ProjectType, pm string) generator {
 	switch pt {
 	case kit.Web:
 		return generator{Args: []string{pm, "create", "vite@latest", "{dir}", "--template", "react-ts"}}
 	case kit.Backend:
-		return generator{Manual: pm + " dlx @nestjs/cli new {dir} --package-manager " + pm}
+		// --skip-git as well: nest new runs git init, which would make the new
+		// directory a repository the user did not ask for.
+		return generator{Args: []string{pm, "dlx", "@nestjs/cli", "new", "{dir}",
+			"--package-manager", pm, "--skip-install", "--skip-git"}}
 	case kit.Mobile:
-		return generator{Manual: pm + " create expo-app {dir} --template blank-typescript"}
+		return generator{Args: []string{pm, "create", "expo-app", "{dir}",
+			"--template", "blank-typescript", "--no-install"}}
 	}
 	return generator{}
 }

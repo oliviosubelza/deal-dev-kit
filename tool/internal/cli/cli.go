@@ -47,6 +47,21 @@ type Env struct {
 // ErrAborted is returned when the user declines to apply a plan.
 var ErrAborted = errors.New("cancelado")
 
+// errNotAProject marks the one ProjectRoot failure the interactive session can
+// offer to fix: there is simply no project here. The other failure — standing
+// inside the kit checkout — must never lead to an offer to scaffold, so the
+// two are distinguished rather than both treated as "not a project".
+var errNotAProject = errors.New("no se está dentro de un proyecto")
+
+// IsNotAProject reports whether err is ProjectRoot failing because no project
+// marker exists at or above the current directory.
+func IsNotAProject(err error) bool { return errors.Is(err, errNotAProject) }
+
+// projectMarkers are the files that make a directory a project, in the order
+// ProjectRoot tests them. The create screen names them, so both read from
+// here: two lists would drift.
+var projectMarkers = []string{"package.json", ".git", lockfile.Name}
+
 // kit resolves the kit to work against, cloning or fetching unless a local
 // directory was given.
 func (e Env) kit() (kit.Checkout, error) {
@@ -81,7 +96,7 @@ func (e Env) ProjectRoot() (string, error) {
 				"  El kit es DESDE donde se instala. Hay que entrar al proyecto\n"+
 				"  EN el que se quiere instalar y ejecutar deal-kit ahí.", dir)
 		}
-		for _, marker := range []string{lockfile.Name, "package.json", ".git"} {
+		for _, marker := range projectMarkers {
 			if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
 				return dir, nil
 			}
@@ -91,12 +106,12 @@ func (e Env) ProjectRoot() (string, error) {
 			// Name --here on its own, the way the user just invoked the tool:
 			// pointing only at `init --here` reads as "this is not for you"
 			// when the browser accepts the same flag.
-			return "", fmt.Errorf("no se está dentro de un proyecto: no se encontró package.json, .git ni %s por encima de %s.\n"+
+			return "", fmt.Errorf("%w: no se encontró package.json, .git ni %s por encima de %s.\n"+
 				"  Para trabajar igual en este directorio, agregar --here:\n"+
 				"    deal-kit --here\n"+
 				"  O crear primero el proyecto y volver a ejecutar deal-kit:\n"+
 				"    git init  ·  pnpm init  ·  pnpm create vite",
-				lockfile.Name, e.Cwd)
+				errNotAProject, lockfile.Name, e.Cwd)
 		}
 		dir = parent
 	}
@@ -349,14 +364,9 @@ func resolveProjectType(m *kit.Manifest, root, override string, lock *lockfile.F
 		filepath.Base(root), strings.Join(projectTypeNames(m), ", "))
 }
 
-func projectTypeNames(m *kit.Manifest) []string {
-	var out []string
-	for pt := range m.ProjectTypes {
-		out = append(out, string(pt))
-	}
-	sort.Strings(out)
-	return out
-}
+// projectTypeNames delegates to the manifest so the CLI never keeps a second
+// list of project types alongside it.
+func projectTypeNames(m *kit.Manifest) []string { return m.ProjectTypeNames() }
 
 func formatRoots(roots map[string]string) string {
 	keys := make([]string, 0, len(roots))

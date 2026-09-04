@@ -18,6 +18,13 @@ func shortenPath(p string, width int) string {
 			p = "~" + string(filepath.Separator) + rel
 		}
 	}
+	return fitTail(p, width)
+}
+
+// fitTail keeps the tail of a path that does not fit, marking the cut with an
+// ellipsis. It leaves the path otherwise untouched, so a caller that must show
+// an absolute path does not get a ~ instead.
+func fitTail(p string, width int) string {
 	if len([]rune(p)) <= width || width < 8 {
 		return p
 	}

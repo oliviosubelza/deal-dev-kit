@@ -250,3 +250,77 @@ func TestFetchUnknownRefFails(t *testing.T) {
 		t.Fatal("expected an error for a ref that does not exist")
 	}
 }
+
+// gitInRepo runs a git command in a throwaway test repository.
+func gitInRepo(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(sanitizedEnv(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func TestFetchAdoptsATagMovedOnTheRemote(t *testing.T) {
+	skipWithoutGit(t)
+	origin := originRepo(t)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	if _, err := Fetch(Source{Repo: origin}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The kit is retagged: kit-v1.2.0 now points at the tip of main, which
+	// carries the mobile project type. HANDOFF.md documents this practice.
+	gitInRepo(t, origin, "tag", "--force", "kit-v1.2.0", "main")
+
+	got, err := Fetch(Source{Repo: origin})
+	if err != nil {
+		t.Fatalf("a tag moved on the remote must not break fetch: %v", err)
+	}
+	if got.Version != "kit-v1.2.0" {
+		t.Fatalf("version = %q, want kit-v1.2.0", got.Version)
+	}
+	m, err := LoadManifest(got.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.ProjectTypes["mobile"]; !ok {
+		t.Error("the cache kept the old kit-v1.2.0 commit instead of adopting the moved tag")
+	}
+}
+
+func TestFetchPrunesATagDeletedOnTheRemote(t *testing.T) {
+	skipWithoutGit(t)
+	origin := originRepo(t)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	gitInRepo(t, origin, "tag", "kit-v2.0.0", "main")
+	first, err := Fetch(Source{Repo: origin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Version != "kit-v2.0.0" {
+		t.Fatalf("version = %q, want the cache to start on kit-v2.0.0", first.Version)
+	}
+
+	// The release is withdrawn upstream.
+	gitInRepo(t, origin, "tag", "--delete", "kit-v2.0.0")
+
+	second, err := Fetch(Source{Repo: origin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags, err := git(second.Dir, "tag", "--list", "kit-v2.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(tags) != "" {
+		t.Error("kit-v2.0.0 was deleted upstream but lingers in the cache")
+	}
+	if second.Version != "kit-v1.2.0" {
+		t.Errorf("version = %q: a tag deleted upstream was selected as the newest kit-v*", second.Version)
+	}
+}

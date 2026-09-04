@@ -1,0 +1,22 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║   deal-kit 0.1.7  —  kit de desarrollo compartido CRM DEAL           ║
+║   /projects/nuevo-servicio                                           ║
+║                                                                      ║
+║   Este directorio no es un proyecto                                  ║
+║                                                                      ║
+║   No se encontró ninguna marca de proyecto acá ni por encima.        ║
+║   Se buscó: package.json, .git, deal-kit.lock                        ║
+║                                                                      ║
+║   ¿Qué tipo de proyecto es?                                          ║
+║                                                                      ║
+║    ▸ backend                                                         ║
+║      mobile                                                          ║
+║      web                                                             ║
+║                                                                      ║
+║   Se ejecuta el generador oficial del tipo elegido, después de       ║
+║   verificar que las herramientas necesarias estén instaladas.        ║
+║                                                                      ║
+║   ↑/↓: mover  •  enter: crear  •  esc: volver                        ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝

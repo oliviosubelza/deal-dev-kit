@@ -632,3 +632,34 @@ artifacts:
 		t.Errorf("error = %v, want references unknown artifact", err)
 	}
 }
+
+func TestProjectTypeNamesAreSortedAndComeFromTheManifest(t *testing.T) {
+	m, err := ParseManifest([]byte(validManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(m.ProjectTypeNames(), ","), "backend,web"; got != want {
+		t.Errorf("ProjectTypeNames() = %q, want %q", got, want)
+	}
+}
+
+func TestProjectTypeNamesFollowADifferentManifest(t *testing.T) {
+	// A second hardcoded list is how the two lists drift: the names must come
+	// from whatever kit.yaml declares, not from the three the org has today.
+	m, err := ParseManifest([]byte(`
+version: 1
+project_types:
+  desktop: { match: "deal-desktop", roots: { src: src } }
+  api:     { match: "deal-api", roots: { src: src } }
+profiles:
+  api: [api/x]
+artifacts:
+  - { id: api/x, type: skill, applies_to: [api], src: skills/api/x }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(m.ProjectTypeNames(), ","), "api,desktop"; got != want {
+		t.Errorf("ProjectTypeNames() = %q, want %q", got, want)
+	}
+}

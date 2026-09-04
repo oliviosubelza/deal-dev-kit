@@ -1,0 +1,21 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║   deal-kit 0.1.7  —  kit de desarrollo compartido CRM DEAL           ║
+║   /projects/nuevo-servicio                                           ║
+║                                                                      ║
+║   Este directorio no es un proyecto                                  ║
+║                                                                      ║
+║   No se encontró ninguna marca de proyecto acá ni por encima.        ║
+║   Se buscó: package.json, .git, deal-kit.lock                        ║
+║                                                                      ║
+║   ¿Crear un proyecto nuevo acá?                                      ║
+║                                                                      ║
+║    ▸ Sí, crear el proyecto acá                                       ║
+║      No, salir sin crear nada                                        ║
+║                                                                      ║
+║   Cancelar no escribe nada: se puede hacer cd al directorio          ║
+║   correcto y volver a ejecutar deal-kit.                             ║
+║                                                                      ║
+║   ↑/↓: mover  •  enter: elegir  •  esc: cancelar                     ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝

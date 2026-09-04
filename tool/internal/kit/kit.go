@@ -4,6 +4,7 @@ package kit
 
 import (
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -41,6 +42,18 @@ type Manifest struct {
 // Rewrites returns the import rewrites for a project type, or nil.
 func (m *Manifest) Rewrites(pt ProjectType) map[string]string {
 	return m.ImportRewrites[pt]
+}
+
+// ProjectTypeNames is every project type kit.yaml declares, sorted. It is the
+// single source for "which types exist": a second hardcoded list next to this
+// one is how the two drift apart.
+func (m *Manifest) ProjectTypeNames() []string {
+	out := make([]string, 0, len(m.ProjectTypes))
+	for pt := range m.ProjectTypes {
+		out = append(out, string(pt))
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ProjectTypeSpec describes how to recognise a project type and where its

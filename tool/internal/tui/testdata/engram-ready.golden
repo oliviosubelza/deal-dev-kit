@@ -1,0 +1,38 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║   deal-kit dev  —  kit de desarrollo compartido CRM DEAL             ║
+║   crm-deal-web  ·  web  ·  kit sin fijar                             ║
+║   /projects/crm-deal-web                                             ║
+║                                                                      ║
+║   Engram para Claude Code                                            ║
+║                                                                      ║
+║   Memoria persistente para el agente de IA: guarda decisiones,       ║
+║   bugs y convenciones, y las recupera en la sesión siguiente.        ║
+║                                                                      ║
+║     repo                Gentleman-Programming/engram                 ║
+║     marketplace         v1.20.0  (fijado)                            ║
+║     plugin              engram@engram  0.1.1                         ║
+║     alcance             usuario · GLOBAL, no toca el proyecto        ║
+║     claude              /usr/local/bin/claude                        ║
+║     engram              /usr/local/bin/engram                        ║
+║                                                                      ║
+║   Estado                                                             ║
+║                                                                      ║
+║   ✓ El marketplace es el correcto y el plugin está habilitado.       ║
+║                                                                      ║
+║   Qué se instala                                                     ║
+║                                                                      ║
+║   Los hooks de sesión, los scripts que los ejecutan y la skill       ║
+║   "memory", dentro de la configuración global de Claude Code.        ║
+║                                                                      ║
+║   En Windows los hooks necesitan Git Bash o WSL: sin uno de los      ║
+║   dos se instalan pero nunca se ejecutan.                            ║
+║   Después queda pendiente `engram setup claude-code`, que registra   ║
+║   el servidor MCP. deal-kit no lo ejecuta: cambia permisos y otros   ║
+║   archivos globales.                                                 ║
+║                                                                      ║
+║   no hay nada que hacer                                              ║
+║                                                                      ║
+║   esc: volver  •  q: salir                                           ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝

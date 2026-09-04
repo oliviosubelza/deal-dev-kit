@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/engram"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
 )
 
@@ -41,6 +42,8 @@ func (m Model) View() string {
 		lines = append(lines, m.listLines()...)
 	case screenStatus:
 		lines = append(lines, m.statusLines()...)
+	case screenEngram:
+		lines = append(lines, m.engramLines()...)
 	case screenPlan:
 		lines = append(lines, m.planLines()...)
 	case screenApplied:
@@ -331,8 +334,12 @@ func (m Model) statusLines() []string {
 }
 
 func (m Model) field(name, value string, c lipgloss.Color) string {
-	return subtle.Width(22).Render("  "+name) + bg.Foreground(c).Render(value)
+	return subtle.Width(fieldNameW).Render("  "+name) +
+		bg.Foreground(c).Render(clip(value, m.content()-fieldNameW))
 }
+
+// fieldNameW is the label column of a name/value line.
+const fieldNameW = 22
 
 func orDash(s string) string {
 	if s == "" {
@@ -514,6 +521,124 @@ func depSpecs(deps map[string]string) []string {
 		out = append(out, name+"@"+rng)
 	}
 	sortStrings(out)
+	return out
+}
+
+// --- engram ---
+
+// engramLines is the consent screen for the Claude Code plugin. It renders the
+// state that was resolved before the program started and the exact commands
+// that would run; nothing here queries or executes anything, because a
+// streamed install belongs in the normal terminal, not the alternate screen.
+func (m Model) engramLines() []string {
+	st := m.cfg.Engram
+	out := []string{section.Render("Engram para Claude Code"), ""}
+	out = append(out, m.prose(
+		"Memoria persistente para el agente de IA: guarda decisiones, bugs y convenciones, y las recupera en la sesión siguiente.")...)
+	out = append(out, "")
+
+	out = append(out, m.field("repo", engram.MarketplaceRepo, colText))
+	out = append(out, m.field("marketplace", engram.MarketplaceTag+"  (fijado)", colText))
+	out = append(out, m.field("plugin", engram.PluginID+"  "+orDash(st.Version), colText))
+	// Say the scope out loud: this writes to the user's global Claude Code
+	// configuration, not to the project deal-kit is otherwise working on.
+	out = append(out, m.field("alcance", "usuario · GLOBAL, no toca el proyecto", colWarn))
+	out = append(out, m.field("claude", orDash(st.ClaudePath), colText))
+	engramWhere, engramColor := st.EngramPath, colText
+	if engramWhere == "" {
+		engramWhere, engramColor = "no está en el PATH", colWarn
+	}
+	out = append(out, m.field("engram", engramWhere, engramColor))
+	out = append(out, "")
+
+	out = append(out, section.Render("Estado"), "")
+	out = append(out, m.engramStateLines()...)
+	out = append(out, "")
+
+	out = append(out, section.Render("Qué se instala"), "")
+	out = append(out, m.prose(
+		"Los hooks de sesión, los scripts que los ejecutan y la skill \"memory\", dentro de la configuración global de Claude Code.")...)
+	out = append(out, "")
+
+	if !m.cfg.EngramPlan.Empty() {
+		out = append(out, section.Render("Comandos"), "")
+		for _, line := range m.cfg.EngramPlan.Lines() {
+			out = append(out, m.commandLines(line)...)
+		}
+		out = append(out, "")
+	}
+
+	out = append(out, m.warnings(st)...)
+
+	if reason := m.engramBlocked(); reason != "" {
+		out = append(out, warnText.Render(clip(reason, m.content())), "")
+		return append(out, m.keyLines("esc", "volver", "q", "salir")...)
+	}
+	return append(out, m.keyLines("y", "instalar", "n", "cancelar", "esc", "volver", "q", "salir")...)
+}
+
+// warnings are the things that do not stop the install but make it not work.
+func (m Model) warnings(st engram.Status) []string {
+	var out []string
+	// The hooks are shell scripts. cmd.exe cannot run them, so on Windows the
+	// plugin installs and then silently never fires.
+	out = append(out, m.prose(
+		"En Windows los hooks necesitan Git Bash o WSL: sin uno de los dos se instalan pero nunca se ejecutan.")...)
+	if !st.EngramBinaryFound() && st.State != engram.StateClaudeMissing {
+		out = append(out, m.prose(
+			"El binario engram no está en el PATH. El plugin se instala igual, pero los hooks fallan hasta que esté.")...)
+	}
+	out = append(out, m.prose(
+		"Después queda pendiente `engram setup claude-code`, que registra el servidor MCP. deal-kit no lo ejecuta: cambia permisos y otros archivos globales.")...)
+	return append(out, "")
+}
+
+// engramStateLines is the one message that says what was found.
+func (m Model) engramStateLines() []string {
+	style, text := engramStateMessage(m.cfg.Engram)
+	var out []string
+	for _, l := range wrapWords(text, m.content()) {
+		out = append(out, style.Render(clip(l, m.content())))
+	}
+	return out
+}
+
+func engramStateMessage(st engram.Status) (lipgloss.Style, string) {
+	switch st.State {
+	case engram.StateReady:
+		return goodText, "✓ El marketplace es el correcto y el plugin está habilitado."
+	case engram.StatePluginDisabled:
+		return warnText, "El plugin está instalado pero deshabilitado."
+	case engram.StatePluginMissing:
+		return subtle, "El marketplace ya está registrado; falta instalar el plugin."
+	case engram.StateMarketplaceMissing:
+		return subtle, "El marketplace engram todavía no está registrado."
+	case engram.StateMarketplaceConflict:
+		return badText, "Ya hay un marketplace llamado engram que apunta a " +
+			orDash(st.FoundRepo) + ". deal-kit no lo modifica: resolverlo a mano."
+	case engram.StateClaudeMissing:
+		return badText, "No se encontró claude en el PATH: instalar Claude Code primero."
+	default:
+		msg := "No se pudo leer el estado del plugin."
+		if st.Err != nil {
+			msg = "No se pudo leer el estado del plugin: " + st.Err.Error()
+		}
+		return badText, msg
+	}
+}
+
+// commandLines renders one command, wrapped and indented. The marketplace URL
+// is a single 60-character token, so it is clipped rather than allowed to
+// overflow: the repo and the pinned tag are already named as fields above.
+func (m Model) commandLines(line string) []string {
+	var out []string
+	for i, l := range wrapWords(line, m.content()-4) {
+		prefix := "  "
+		if i > 0 {
+			prefix = "    "
+		}
+		out = append(out, faintText.Render(clip(prefix+l, m.content())))
+	}
 	return out
 }
 

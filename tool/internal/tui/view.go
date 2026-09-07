@@ -560,7 +560,8 @@ func (m Model) engramLines() []string {
 	st := m.cfg.Engram
 	out := []string{section.Render("Engram para Claude Code"), ""}
 	out = append(out, m.prose(
-		"Memoria persistente para el agente de IA: guarda decisiones, bugs y convenciones, y las recupera en la sesión siguiente.")...)
+		"Memoria persistente para el agente de IA: guarda decisiones, bugs y convenciones, y las recupera en la sesión siguiente.",
+		"Instala los hooks de sesión y la skill \"memory\" en la configuración global de Claude Code.")...)
 	out = append(out, "")
 
 	out = append(out, m.field("repo", engram.MarketplaceRepo, colText))
@@ -581,11 +582,10 @@ func (m Model) engramLines() []string {
 	out = append(out, m.engramStateLines()...)
 	out = append(out, "")
 
-	out = append(out, section.Render("Qué se instala"), "")
-	out = append(out, m.prose(
-		"Los hooks de sesión, los scripts que los ejecutan y la skill \"memory\", dentro de la configuración global de Claude Code.")...)
-	out = append(out, "")
-
+	// The download step's own line already says the asset, the exact target
+	// and whether it replaces a file that is there; restating any of it below
+	// the command only teaches the reader that this screen repeats itself.
+	dl, hasDownload := engram.Download{}, false
 	if !m.cfg.EngramPlan.Empty() {
 		out = append(out, section.Render("Comandos"), "")
 		for _, line := range m.cfg.EngramPlan.Lines() {
@@ -593,26 +593,18 @@ func (m Model) engramLines() []string {
 		}
 		out = append(out, "")
 		// The destination is named before the user consents: this writes an
-		// executable outside the project, and PATH is the one thing deal-kit
-		// will not edit on their behalf.
+		// executable outside the project.
 		if d, ok := m.cfg.EngramPlan.Binary(); ok {
-			out = append(out, m.field("destino", d.Dir, colText))
-			if !d.OnPath {
-				out = append(out, m.prose("Ese directorio no está en el PATH: agregarlo a mano y "+
-					"reiniciar Claude Code, o el servidor MCP no va a encontrar engram.")...)
-			}
-			// Said before the user presses y: the install renames over
-			// whatever is at that exact path, and when the directory is not
-			// on PATH nothing else in this screen would have mentioned it.
-			if d.Replaces {
-				out = append(out, m.prose("Ya hay un archivo en "+d.Target()+
-					": la instalación lo reemplaza y no guarda una copia.")...)
-			}
-			out = append(out, "")
+			dl, hasDownload = d, true
+			out = append(out, m.field("destino", d.Dir, colText), "")
 		}
 	}
 
 	out = append(out, m.warnings(st)...)
+	// Last, right above the keys: it is the only thing on this screen the
+	// install cannot do for the user, so it is the one that must not be
+	// crowded out by the warnings above it.
+	out = append(out, m.pathAction(st, dl, hasDownload)...)
 
 	if reason := m.engramBlocked(); reason != "" {
 		out = append(out, warnText.Render(clip(reason, m.content())), "")
@@ -654,16 +646,87 @@ func (m Model) warnings(st engram.Status) []string {
 		out = append(out, m.prose(
 			"En Windows los hooks necesitan Git Bash o WSL: sin uno de los dos se instalan pero nunca se ejecutan.")...)
 	}
-	if !st.EngramBinaryFound() && st.State != engram.StateClaudeMissing {
-		msg := "El binario engram no está en el PATH. Sin él fallan los hooks y el servidor MCP."
-		if m.cfg.EngramPlan.InstallsBinary() {
-			msg += " El plan lo instala primero, antes de tocar el plugin."
-		}
-		out = append(out, m.prose(msg)...)
+	// A missing binary is not warned about here: pathAction says it once,
+	// with the command that fixes it. Nothing about `engram setup
+	// claude-code` either — the plugin ships its own .mcp.json and the
+	// install registers the MCP server, so telling the user it is still
+	// pending sent them to run a command they did not need.
+	if len(out) == 0 {
+		return nil
 	}
-	out = append(out, m.prose(
-		"Después queda pendiente `engram setup claude-code`, que registra el servidor MCP. deal-kit no lo ejecuta: cambia permisos y otros archivos globales.")...)
 	return append(out, "")
+}
+
+// pathAction is the one thing on this screen deal-kit cannot do for the user,
+// said once and with the exact command.
+//
+// deal-kit still does not edit PATH: that is the same global mutation it
+// refuses when it finds a foreign marketplace, and a shell's configuration is
+// its owner's. Refusing to run the command is not a reason to make the reader
+// work out what it is.
+func (m Model) pathAction(st engram.Status, d engram.Download, hasDownload bool) []string {
+	if st.EngramBinaryFound() || st.State == engram.StateClaudeMissing {
+		return nil
+	}
+	if hasDownload && d.OnPath {
+		// The binary lands in a directory the shell already searches, so
+		// there is nothing to do after pressing y.
+		return nil
+	}
+	if !hasDownload {
+		// No destination to name: `go install` writes to GOBIN, and a blocked
+		// or empty plan has no directory at all. The consequence is still
+		// worth one line, since the table row above only reports the fact.
+		return append(m.prose(
+			"engram no está en el PATH: sin él fallan los hooks y el servidor MCP."), "")
+	}
+	out := m.warn("Falta: engram no está en el PATH — el servidor MCP no va a arrancar.")
+	out = append(out, "")
+	cmds, after := PathHint(hostGOOS, d.Dir)
+	for _, c := range cmds {
+		out = append(out, m.commandLines(c)...)
+	}
+	out = append(out, "")
+	out = append(out, m.prose(after)...)
+	return append(out, "")
+}
+
+// PathHint is the command that puts dir on PATH on goos, and what to do after
+// running it. It is exported because internal/cli prints the same advice after
+// a non-interactive install: this screen and that output disagreeing is a bug
+// this repository has already shipped once, with the Windows hooks warning.
+//
+// The POSIX form is the line itself plus where it goes, rather than an edit to
+// a specific rc file: deal-kit cannot tell which shell is in use and must not
+// name a file it never looked at.
+//
+// The Windows form is deliberately three lines and not `setx`. `setx PATH
+// "%PATH%;<dir>"` fits on one line and is what a short panel invites, but in
+// cmd.exe %PATH% expands to the system and user paths merged, so it copies the
+// system half into the user's, and setx truncates the result at 1024
+// characters without saying so. A command that can quietly break the user's
+// environment is not made acceptable by fitting the layout.
+func PathHint(goos, dir string) (cmds []string, after string) {
+	if goos == "windows" {
+		return []string{
+			`$d = "` + dir + `"`,
+			`$u = [Environment]::GetEnvironmentVariable('Path','User')`,
+			`[Environment]::SetEnvironmentVariable('Path',"$u;$d",'User')`,
+		}, "Después reiniciar la terminal y Claude Code."
+	}
+	return []string{`export PATH="$PATH:` + dir + `"`},
+		"Agregar esa línea al arranque de la shell (~/.zshrc, ~/.bashrc) y reiniciar Claude Code."
+}
+
+// warn renders a sentence in the warning colour, wrapped like prose. The one
+// line the reader must act on cannot be the same weight as the notes around
+// it.
+func (m Model) warn(s string) []string {
+	var out []string
+	for _, l := range wrapWords(s, m.content()) {
+		out = append(out, warnText.Render(clip(l, m.content())))
+	}
+	return out
 }
 
 // engramStateLines is the one message that says what was found.
@@ -705,12 +768,44 @@ func engramStateMessage(st engram.Status) (lipgloss.Style, string) {
 // overflow: the repo and the pinned tag are already named as fields above.
 func (m Model) commandLines(line string) []string {
 	var out []string
-	for i, l := range wrapWords(line, m.content()-4) {
-		prefix := "  "
-		if i > 0 {
-			prefix = "    "
+	first := true
+	for _, l := range wrapWords(line, m.content()-4) {
+		// A command is never clipped. Everywhere else clip() is right: a
+		// truncated sentence still reads as a sentence. A truncated command
+		// reads as a whole command and is not one, so a reader copies
+		// something that does something else — and the PATH command this
+		// exists for is one whose broken form damages the environment. Words
+		// that do not fit are broken by character instead.
+		for _, part := range hardWrap(l, m.content()-4) {
+			prefix := "  "
+			if !first {
+				prefix = "    "
+			}
+			first = false
+			out = append(out, faintText.Render(prefix+part))
 		}
-		out = append(out, faintText.Render(clip(prefix+l, m.content())))
+	}
+	return out
+}
+
+// hardWrap splits s into runs of at most width runes, breaking mid-word when a
+// single token is longer than the line. It counts runes, not bytes: a byte
+// split would cut a multi-byte character in half.
+func hardWrap(s string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	r := []rune(s)
+	if len(r) <= width {
+		return []string{s}
+	}
+	var out []string
+	for len(r) > width {
+		out = append(out, string(r[:width]))
+		r = r[width:]
+	}
+	if len(r) > 0 {
+		out = append(out, string(r))
 	}
 	return out
 }

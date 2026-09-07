@@ -456,7 +456,7 @@ sale, igual que el install de dependencias.
 | JSON ilegible ⇒ `StateUnknown`, no "no instalado" | Adivinar "no instalado" hace que deal-kit vuelva a agregar un marketplace que ya está. |
 | Se ejecuta la ruta que resolvió el `Lookup`, no el nombre pelado | Resolver una cosa y ejecutar otra es cómo un test "hermético" termina corriendo el `claude` real. Se descubrió así: la primera versión del E2E ejecutó el binario de verdad. |
 | Solo scope `user` cuenta como instalado | Una copia con scope `project` es otra decisión y no puede hacer parecer hecho el install global. |
-| `engram setup claude-code` queda **fuera** | Registra el MCP: cambia permisos y otros archivos globales. Se avisa que queda pendiente. |
+| `engram setup claude-code` queda **fuera** | **Corregido — el razonamiento original de esta fila era falso, igual que la de identidad del marketplace.** Decía que registra el MCP y que por eso quedaba pendiente. No queda pendiente nada: el plugin trae su propio `.mcp.json`, así que `plugin install` ya registra el servidor MCP. Verificado instalando contra un `HOME` vacío y leyendo `claude plugin list --json`, que devuelve `"mcpServers": {"engram": {"command": "engram", "args": ["mcp","--tools=agent"]}}`. En `docs/PLUGINS.md` de upstream ese comando es una **alternativa** al install por marketplace, no un paso posterior. La pantalla y `renderEngram` mandaban al usuario a cambiar permisos globales para nada; ver §15. |
 | Se sacó la entrada "Actualizar el kit" del menú | `u` ya actualiza desde "Estado del proyecto" y su leyenda lo dice. `catalog_test.go` exige ≤ 6 entradas y el menú tiene que seguir siendo escaneable. |
 | `EngramIntent()` separado de `Result()` | `Result()` contesta "¿hubo sync del kit?". Sobrecargarlo haría que un booleano signifique dos cosas sin relación. |
 | Engram no es artefacto de `kit.yaml` | Escribe en la config global del usuario, no en el proyecto. Por eso "Instalar todo" no lo incluye — hay un test que lo fija. |
@@ -563,7 +563,7 @@ plugin en `StateReady` y sin binario devolvía `Plan{}`.
 | Solo `amd64` y `arm64` | Es lo único que publica el release. Otro `GOARCH` da plan vacío con motivo, nunca una URL adivinada. |
 | Checksum obligatorio | Un asset que no coincide, o que no está en el manifiesto, no se instala. |
 | Temp + `os.Rename` | Una descarga interrumpida no deja un ejecutable truncado en el PATH. |
-| **deal-kit no toca el PATH** | Misma clase de mutación global que ya se rechaza con el marketplace en conflicto. Dice qué directorio agregar y que hay que reiniciar Claude Code. |
+| **deal-kit no toca el PATH** | Misma clase de mutación global que ya se rechaza con el marketplace en conflicto. Desde §15 entrega además el comando exacto para agregarlo (`tui.PathHint`): negarse a ejecutarlo no es razón para que el usuario tenga que deducirlo. |
 | `Verified()` exige el binario | Un `StateReady` sin binario no es una instalación que funcione. |
 | Presupuesto: se nombra al que lo consumió, no se reparte | Un budget por paso mal elegido convierte un install lento pero sano en una falla. |
 
@@ -874,3 +874,98 @@ scratch en `/tmp/scratch/`, los cuatro casos:
 cambio ignora `ensure_line` en silencio — el campo no existe en su
 `rawArtifact`, así que instala la persona y nunca agrega el import, que es
 exactamente el bug que esto arregla.
+
+---
+
+## 15. La pantalla de Engram: una instrucción falsa y tres veces el PATH
+
+Salida real de una máquina Windows. Dos problemas distintos.
+
+### El defecto: `engram setup claude-code` no queda pendiente
+
+La pantalla y `renderEngram` decían *"Después queda pendiente `engram setup
+claude-code`, que registra el servidor MCP"*. Es falso. El plugin trae su propio
+`.mcp.json`; instalarlo y habilitarlo **es** lo que registra el servidor MCP.
+Verificado instalando contra un `HOME` vacío: `claude plugin list --json`
+devolvió `"mcpServers": {"engram": {"command": "engram", "args":
+["mcp","--tools=agent"]}}`. Upstream lo lista en `docs/PLUGINS.md` como
+**alternativa** al install por marketplace, no como paso siguiente.
+
+Consecuencia: mandaba a cada usuario a ejecutar un comando que cambia permisos y
+archivos globales, para nada. La fila de §10 que lo registraba como exclusión
+deliberada quedó corregida en el mismo estilo que la fila de identidad del
+marketplace en §13.
+
+### El ruido: el PATH dicho tres veces y arreglado ninguna
+
+`engram no está en el PATH` aparecía en la fila de la tabla, en una nota debajo
+de `destino` y otra vez en el bloque de advertencias, y lo más parecido a una
+instrucción era *"agregarlo a mano"*.
+
+Ahora es **un** bloque de acción, último antes de las teclas, con el comando de
+la plataforma del host y el directorio real que resolvió el plan:
+
+```
+   Falta: engram no está en el PATH — el servidor MCP no va a arrancar.
+
+     setx PATH "%PATH%;C:\Users\...\AppData\Local\Programs\engram"
+
+   Después reiniciar Claude Code.
+```
+
+En POSIX es `export PATH="$PATH:<dir>"` más dónde va esa línea (`~/.zshrc`,
+`~/.bashrc`). **No se edita un rc concreto ni se dice que se editó**: deal-kit no
+sabe qué shell corre y no nombra un archivo que no miró. Sigue sin tocar el PATH.
+
+### Decisiones
+
+| Decisión | Razón |
+|---|---|
+| `tui.PathHint(goos, dir)` exportada | La pantalla y `renderEngram` tienen que decir lo mismo en la misma máquina. Ya divergieron una vez con la advertencia de Windows (§11). Un solo helper hace imposible que contesten distinto. |
+| `internal/cli` estrena su propio `hostGOOS` | `render.go` gateaba con `runtime.GOOS` directo y no se podía testear la otra plataforma. Ahora espeja `tui.hostGOOS` y hay un test por plataforma de los dos lados. |
+| El bloque del PATH va **último** | Es lo único de la pantalla que el install no puede hacer por el usuario. Arriba quedan las advertencias, que no deben competir con él. |
+| Se sacó la sección "Qué se instala" | Prosa estática que nunca cambia, con su propio título y dos líneas en blanco. Se fusionó en una oración del párrafo de arriba. |
+| Se sacó "El plan lo instala primero, antes de tocar el plugin" | El orden de la lista de comandos ya lo muestra. |
+| Se sacó la nota de "reemplaza el archivo que ya está ahí" | `downloadNote` ya lo dice en la línea del comando. Se dice una vez. |
+| El destino ya en el PATH no pide nada | Si el binario aterriza en un directorio que la shell ya busca, no hay acción pendiente; inventar una entrena a saltear el bloque. |
+| Sin `Download` queda una línea, no un bloque | `go install` escribe en `GOBIN` y un plan bloqueado no tiene directorio: no hay comando honesto que dar, pero la consecuencia vale una línea. |
+
+### Riesgo conocido: `setx PATH "%PATH%;..."`
+
+Es el comando corto y copiable, y es el que se entrega. Tiene dos defectos
+conocidos de Windows que **no** son de deal-kit: `%PATH%` en `cmd.exe` es la
+mezcla de PATH de sistema y de usuario, así que `setx` copia el de sistema
+dentro del de usuario; y `setx` trunca a 1024 caracteres. La alternativa segura
+es una línea de PowerShell con `[Environment]::SetEnvironmentVariable`, que a 46
+columnas se corta por el medio y deja de ser copiable. Se eligió el comando
+corto; si alguna vez molesta, la decisión vive en un solo lugar (`PathHint`).
+
+### Tests
+
+| Qué fija | Test |
+|---|---|
+| La instrucción falsa no vuelve (4 estados) | `tui.TestTheScreenNeverTellsTheUserToRunEngramSetup` |
+| Lo mismo en la salida no interactiva | `cli.TestTheEngramOutputNeverTellsTheUserToRunEngramSetup` |
+| El comando por plataforma, como unidad | `tui.TestPathHintIsTheCommandForItsPlatform` |
+| El comando en la pantalla, por plataforma | `tui.TestThePathCommandIsTheOneForTheHostPlatform` (además exige que "agregarlo a mano" y "El plan lo instala primero" no vuelvan) |
+| El comando en `renderEngram`, por plataforma | `cli.TestThePathCommandInTheOutputMatchesTheHostPlatform` |
+| Un destino ya en el PATH no pide nada | `tui.TestAnAlreadyReachableDestinationAsksForNothing` |
+| La pantalla que ve un Windows | golden `engram-binary-missing-windows` (`tui.TestViewEngramMissingBinaryOnWindows`) |
+
+Los cinco primeros se verificaron al revés reintroduciendo la frase falsa, la
+nota de "a mano" y un `goos` equivocado en `PathHint`: los seis fallan.
+
+El golden de Windows sigue mostrando un `destino` POSIX: `hostGOOS` gobierna solo
+el texto de la vista, mientras que `engram.PlanFor` deriva el directorio de
+`runtime.GOOS`. Lo que fija el snapshot es la forma de la pantalla y qué frases
+recibe un host Windows, no la ruta.
+
+### Verificación
+
+`gofmt -l .` limpio · `go vet ./...` limpio · `go test ./... -count=1` 12/12 ·
+goldens regenerados (los cuatro de Engram cambiaron, el resto sin diff) ·
+hermeticidad `HERMETIC`.
+
+### Tag
+
+`v*`: los cambios son de `tool/`.

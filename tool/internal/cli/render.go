@@ -14,6 +14,7 @@ import (
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/pm"
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/tui"
 )
 
 // renderPlan prints what a sync would do, in the order it would do it.
@@ -257,6 +258,13 @@ func renderDoctor(w io.Writer, rep doctor.Report) {
 
 // --- engram ---
 
+// hostGOOS is the platform the Engram warnings are written for. It mirrors
+// tui.hostGOOS and exists for the same reason: the two renderers must say the
+// same thing on the same machine, and a warning only one developer's platform
+// ever prints is the kind that rots unnoticed. Nothing in production assigns
+// it.
+var hostGOOS = runtime.GOOS
+
 // renderEngram reports the outcome of installing the Claude Code plugin.
 // Failures go to stderr and progress to stdout, so a piped run keeps the two
 // apart the way every other command here does.
@@ -286,25 +294,32 @@ func renderEngram(w, errW io.Writer, p engram.Plan, o engram.Outcome) {
 			"    el estado final del plugin. Revisar con `claude plugin list`.\n")
 	}
 
-	if !o.Status.EngramBinaryFound() {
-		fmt.Fprintf(errW, "\n  advertencia: el binario engram no está en el PATH.\n"+
-			"    El plugin queda instalado, pero sus hooks y su servidor MCP fallan hasta que esté.\n")
-		// deal-kit writes the binary but never edits PATH: that is the same
-		// global mutation it refuses everywhere else. Naming the directory
-		// and the restart is the whole of what it can honestly do.
-		if d, ok := p.Binary(); ok && !d.OnPath {
-			fmt.Fprintf(errW, "    Quedó en %s: agregar ese directorio al PATH y reiniciar Claude Code.\n", d.Dir)
-		}
-	}
-	if runtime.GOOS == "windows" {
+	if hostGOOS == "windows" {
 		fmt.Fprintf(errW, "\n  advertencia: en Windows los hooks necesitan Git Bash o WSL.\n"+
 			"    Sin uno de los dos se instalan pero nunca se ejecutan.\n")
 	}
+	// Last of the warnings, for the same reason the screen puts it last: it is
+	// the only one the reader has to act on. deal-kit writes the binary and
+	// still never edits PATH — that global mutation stays theirs — so it hands
+	// over the exact command instead of describing the problem twice.
+	if !o.Status.EngramBinaryFound() {
+		fmt.Fprintf(errW, "\n  advertencia: engram no está en el PATH — el servidor MCP no va a arrancar.\n")
+		if d, ok := p.Binary(); ok && !d.OnPath {
+			cmds, after := tui.PathHint(hostGOOS, d.Dir)
+			for _, c := range cmds {
+				fmt.Fprintf(errW, "    %s\n", c)
+			}
+			fmt.Fprintf(errW, "    %s\n", after)
+		} else {
+			fmt.Fprintf(errW, "    Sin él fallan los hooks y el servidor MCP del plugin.\n")
+		}
+	}
 
+	// Nothing about `engram setup claude-code`: the plugin ships its own
+	// .mcp.json, so the install above is what registers the MCP server.
+	// Upstream lists that command as an alternative to the marketplace
+	// install, not as a step after it.
 	fmt.Fprintf(w, "\n  reiniciar Claude Code para que tome el plugin.\n")
-	// Deliberately not run by deal-kit: it changes permissions and other
-	// global files, which is a decision of its own.
-	fmt.Fprintf(w, "  falta ejecutar `engram setup claude-code` para registrar el servidor MCP.\n")
 }
 
 // engramStateLabel names a state for the plain output.

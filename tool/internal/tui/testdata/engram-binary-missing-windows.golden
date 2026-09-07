@@ -13,17 +13,34 @@
 ║                                                                      ║
 ║     repo                Gentleman-Programming/engram                 ║
 ║     marketplace         v1.20.0  (fijado)                            ║
-║     plugin              engram@engram  0.1.1                         ║
+║     plugin              engram@engram  1.20.0                        ║
 ║     alcance             usuario · GLOBAL, no toca el proyecto        ║
 ║     claude              /usr/local/bin/claude                        ║
-║     engram              /usr/local/bin/engram                        ║
+║     engram              no está en el PATH                           ║
 ║                                                                      ║
 ║   Estado                                                             ║
 ║                                                                      ║
 ║   ✓ El marketplace es el correcto y el plugin está habilitado.       ║
 ║                                                                      ║
-║   no hay nada que hacer                                              ║
+║   Comandos                                                           ║
 ║                                                                      ║
-║   esc: volver  •  q: salir                                           ║
+║     descargar engram_1.20.0_linux_amd64.tar.gz →                     ║
+║       /home/deal/.local/bin/engram                                   ║
+║                                                                      ║
+║     destino             /home/deal/.local/bin                        ║
+║                                                                      ║
+║   En Windows los hooks necesitan Git Bash o WSL: sin uno de los      ║
+║   dos se instalan pero nunca se ejecutan.                            ║
+║                                                                      ║
+║   Falta: engram no está en el PATH — el servidor MCP no va a         ║
+║   arrancar.                                                          ║
+║                                                                      ║
+║     $d = "/home/deal/.local/bin"                                     ║
+║     $u = [Environment]::GetEnvironmentVariable('Path','User')        ║
+║     [Environment]::SetEnvironmentVariable('Path',"$u;$d",'User')     ║
+║                                                                      ║
+║   Después reiniciar la terminal y Claude Code.                       ║
+║                                                                      ║
+║   y: instalar  •  n: cancelar  •  esc: volver  •  q: salir           ║
 ║                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════╝

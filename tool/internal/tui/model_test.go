@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1126,6 +1127,157 @@ func TestTheWindowsHooksWarningIsShownOnWindowsOnly(t *testing.T) {
 	}
 }
 
+func TestTheScreenNeverTellsTheUserToRunEngramSetup(t *testing.T) {
+	// It said "queda pendiente `engram setup claude-code`", and it was false:
+	// the plugin ships its own .mcp.json, so `plugin install` is what
+	// registers the MCP server. Verified against a real install into an empty
+	// HOME — `claude plugin list --json` came back with
+	// "mcpServers": {"engram": {"command": "engram", ...}}. Upstream lists
+	// that command as an alternative to the marketplace install, not a step
+	// after it, so the screen was sending people to change global permissions
+	// for nothing.
+	for _, st := range []engram.Status{
+		missingStatus(),
+		{State: engram.StateReady, ClaudePath: "/usr/local/bin/claude", Version: "1.20.0"},
+		{State: engram.StateReady, ClaudePath: "/usr/local/bin/claude",
+			EngramPath: "/usr/local/bin/engram", Version: "1.20.0"},
+		{State: engram.StatePluginDisabled, ClaudePath: "/usr/local/bin/claude", Version: "1.20.0"},
+	} {
+		view := ansi.ReplaceAllString(onScreen(New(engramConfig(t, st)), screenEngram).View(), "")
+		if strings.Contains(view, "setup claude-code") {
+			t.Errorf("state %v: the screen still says the MCP server needs a separate setup:\n%s",
+				st.State, view)
+		}
+	}
+}
+
+func TestPathHintIsTheCommandForItsPlatform(t *testing.T) {
+	// deal-kit does not edit PATH and says so; that is a reason to hand over
+	// the exact line, not a reason to leave the reader with "a mano".
+	for _, tc := range []struct {
+		goos string
+		want []string
+	}{
+		// Never `setx PATH "%PATH%;…"`: in cmd.exe %PATH% is the system and
+		// user paths merged, so it copies the system half into the user's,
+		// and setx truncates at 1024 characters without saying so. Fitting a
+		// panel is not a reason to hand someone a command that can quietly
+		// break their environment.
+		{"windows", []string{
+			`$d = "/opt/engram/bin"`,
+			`$u = [Environment]::GetEnvironmentVariable('Path','User')`,
+			`[Environment]::SetEnvironmentVariable('Path',"$u;$d",'User')`,
+		}},
+		{"linux", []string{`export PATH="$PATH:/opt/engram/bin"`}},
+		{"darwin", []string{`export PATH="$PATH:/opt/engram/bin"`}},
+	} {
+		cmds, after := PathHint(tc.goos, "/opt/engram/bin")
+		if !slices.Equal(cmds, tc.want) {
+			t.Errorf("PathHint(%q) = %q, want %q", tc.goos, cmds, tc.want)
+		}
+		for _, c := range cmds {
+			if strings.HasPrefix(c, "setx ") {
+				t.Errorf("%s: setx truncates at 1024 chars and merges the system path in: %q", tc.goos, c)
+			}
+		}
+		// Windows also needs a new terminal for the variable to be visible,
+		// so the sentence differs; both must still say to restart Claude Code.
+		if !strings.Contains(after, "Claude Code") || !strings.Contains(after, "reiniciar") {
+			t.Errorf("%s: nothing tells the user to restart Claude Code: %q", tc.goos, after)
+		}
+	}
+	// The POSIX form must not name an rc file as if deal-kit had looked at
+	// one: it cannot tell which shell is in use.
+	if _, after := PathHint("linux", "/opt/bin"); !strings.Contains(after, "~/.zshrc") ||
+		!strings.Contains(after, "arranque de la shell") {
+		t.Errorf("the POSIX hint does not say where the line goes: %q", after)
+	}
+}
+
+func TestThePathCommandIsTheOneForTheHostPlatform(t *testing.T) {
+	// PATH used to be stated three times and fixed nowhere: the table row, a
+	// note under the destination and a warning all said it was missing, and
+	// the closest thing to an instruction was "agregarlo a mano".
+	ready := engram.Status{State: engram.StateReady, ClaudePath: "/usr/local/bin/claude",
+		Version: "1.20.0"}
+	prev := hostGOOS
+	t.Cleanup(func() { hostGOOS = prev })
+
+	for _, goos := range []string{"windows", "linux", "darwin"} {
+		hostGOOS = goos
+		cfg := engramShortHomeConfig(t, ready)
+		d, ok := cfg.EngramPlan.Binary()
+		if !ok {
+			t.Fatal("the plan has no download, so there is no destination to put on PATH")
+		}
+		want, _ := PathHint(goos, d.Dir)
+		view := ansi.ReplaceAllString(onScreen(New(cfg), screenEngram).View(), "")
+		// A command too long for the panel is hard-wrapped, never clipped, so
+		// the assertion is that every character survived — not that it landed
+		// on one line.
+		flat := strings.Join(strings.Fields(strings.ReplaceAll(view, "║", " ")), "")
+		for _, w := range want {
+			if !strings.Contains(flat, strings.Join(strings.Fields(w), "")) {
+				t.Errorf("%s: the screen never offers %q:\n%s", goos, w, view)
+			}
+		}
+		// The restatements it replaced must not come back alongside it.
+		for _, gone := range []string{"agregarlo a mano", "El plan lo instala primero"} {
+			if strings.Contains(view, gone) {
+				t.Errorf("%s: the screen still says %q:\n%s", goos, gone, view)
+			}
+		}
+	}
+}
+
+// engramShortHomeConfig is engramConfig with a fake home short enough that the
+// destination survives the panel's width limit. A t.TempDir() path is long
+// enough to be clipped, and a clipped command is not what is under test here.
+// Nothing is written: this only renders.
+func engramShortHomeConfig(t *testing.T, st engram.Status) Config {
+	t.Helper()
+	t.Setenv("HOME", "/home/deal")
+	t.Setenv("USERPROFILE", "/home/deal")
+	t.Setenv("LOCALAPPDATA", "/home/deal/AppData/Local")
+	t.Setenv("PATH", "/usr/bin")
+	cfg := testConfig(t, nil)
+	cfg.Engram = st
+	cfg.EngramPlan = engram.PlanFor(st)
+	return cfg
+}
+
+func TestAnAlreadyReachableDestinationAsksForNothing(t *testing.T) {
+	// The binary is missing but lands in a directory the shell already
+	// searches: there is no action left for the user, and inventing one
+	// teaches them to skip the block that matters.
+	home := t.TempDir()
+	dir := filepath.Join(home, ".local", "bin")
+	if runtime.GOOS == "windows" {
+		dir = filepath.Join(home, "AppData", "Local", "Programs", "engram")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
+	t.Setenv("PATH", dir)
+
+	cfg := testConfig(t, nil)
+	cfg.Engram = engram.Status{State: engram.StateReady, ClaudePath: "/usr/local/bin/claude",
+		Version: "1.20.0"}
+	cfg.EngramPlan = engram.PlanFor(cfg.Engram)
+	d, ok := cfg.EngramPlan.Binary()
+	if !ok || !d.OnPath {
+		t.Fatalf("the destination is not on PATH (download %v, dir %q)", ok, dir)
+	}
+	m := onScreen(New(cfg), screenEngram)
+	m.width = 400
+	if view := ansi.ReplaceAllString(m.View(), ""); strings.Contains(view, "no está en el PATH — ") {
+		t.Errorf("the screen demands a PATH edit for a destination already on it:\n%s", view)
+	}
+}
+
 // engramGoldenConfig is engramConfig with a fixed home instead of a temporary
 // one, so the destination the download step names is the same string on every
 // machine. The asset name carries GOOS and GOARCH and the destination is
@@ -1157,6 +1309,22 @@ func TestViewEngramMissingBinary(t *testing.T) {
 		Version: "1.20.0"}
 	m := onScreen(New(engramGoldenConfig(t, ready)), screenEngram)
 	assertGolden(t, "engram-binary-missing", goldenView(m))
+}
+
+func TestViewEngramMissingBinaryOnWindows(t *testing.T) {
+	// The screen a Windows user actually sees: the hooks warning applies and
+	// the PATH command is the cmd.exe one. Only the view's platform-gated text
+	// follows hostGOOS — the destination still comes from engram.PlanFor, which
+	// derives it from runtime.GOOS, so on this Linux golden the directory is a
+	// POSIX path. What the snapshot pins is the shape of the screen and which
+	// sentences a Windows host gets, not the path.
+	prev := hostGOOS
+	hostGOOS = "windows"
+	t.Cleanup(func() { hostGOOS = prev })
+	ready := engram.Status{State: engram.StateReady, ClaudePath: "/usr/local/bin/claude",
+		Version: "1.20.0"}
+	m := onScreen(New(engramGoldenConfig(t, ready)), screenEngram)
+	assertGolden(t, "engram-binary-missing-windows", goldenView(m))
 }
 
 func TestAnExistingFileAtTheDestinationIsNamedBeforeConsent(t *testing.T) {

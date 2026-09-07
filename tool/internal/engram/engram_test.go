@@ -92,10 +92,31 @@ const (
 	goodMarketplace  = `[{"name":"engram","source":"github","repo":"Gentleman-Programming/engram","installLocation":"/home/u/.claude/plugins/marketplaces/engram"}]`
 	otherMarketplace = `[{"name":"engram","source":"github","repo":"someone-else/engram","installLocation":"/tmp/x"}]`
 	noMarketplaces   = `[]`
-	enabledPlugin    = `[{"id":"engram@engram","version":"0.1.1","scope":"user","enabled":true,"installPath":"/p","installedAt":"x","lastUpdated":"y"}]`
-	disabledPlugin   = `[{"id":"engram@engram","version":"0.1.1","scope":"user","enabled":false,"installPath":"/p"}]`
-	projectPlugin    = `[{"id":"engram@engram","version":"0.1.1","scope":"project","enabled":true,"installPath":"/p"}]`
-	noPlugins        = `[]`
+	// urlMarketplace is `claude plugin marketplace list --json` copied from a
+	// real Windows machine where deal-kit had installed everything itself. It
+	// carries both shapes at once: the official marketplace was added with the
+	// owner/name shorthand and reports `source: "github"` with a `repo`, while
+	// the engram one was added by URL — which is exactly what MarketplaceAddArgs
+	// does — and reports `source: "git"` with `url` and `ref` and no `repo` at
+	// all. Reading identity out of `repo` alone made deal-kit call its own
+	// install a conflict and refuse to do anything.
+	urlMarketplace = `[
+	  {"name":"claude-plugins-official","source":"github","repo":"anthropics/claude-plugins-official","installLocation":"/home/u/.claude/plugins/marketplaces/claude-plugins-official"},
+	  {"name":"engram","source":"git","url":"https://github.com/Gentleman-Programming/engram.git","ref":"v1.20.0","installLocation":"/home/u/.claude/plugins/marketplaces/engram"}
+	]`
+	// staleRefMarketplace is the same repository pinned at an older tag.
+	staleRefMarketplace = `[{"name":"engram","source":"git","url":"https://github.com/Gentleman-Programming/engram.git","ref":"v1.19.0","installLocation":"/home/u/.claude/plugins/marketplaces/engram"}]`
+	// foreignURLMarketplace is someone else's repository in the URL shape.
+	foreignURLMarketplace = `[{"name":"engram","source":"git","url":"https://github.com/someone-else/engram.git","ref":"v1.20.0","installLocation":"/tmp/x"}]`
+	// hostileHostMarketplace carries our owner/name on another host. Same two
+	// path segments, different repository.
+	hostileHostMarketplace = `[{"name":"engram","source":"git","url":"https://evil.example.com/Gentleman-Programming/engram.git","ref":"v1.20.0","installLocation":"/tmp/x"}]`
+	// unreadableURLMarketplace is a URL that reduces to no owner/name at all.
+	unreadableURLMarketplace = `[{"name":"engram","source":"git","url":"engram","ref":"v1.20.0","installLocation":"/tmp/x"}]`
+	enabledPlugin            = `[{"id":"engram@engram","version":"0.1.1","scope":"user","enabled":true,"installPath":"/p","installedAt":"x","lastUpdated":"y"}]`
+	disabledPlugin           = `[{"id":"engram@engram","version":"0.1.1","scope":"user","enabled":false,"installPath":"/p"}]`
+	projectPlugin            = `[{"id":"engram@engram","version":"0.1.1","scope":"project","enabled":true,"installPath":"/p"}]`
+	noPlugins                = `[]`
 )
 
 func queries(markets, plugins string) map[string]reply {
@@ -269,8 +290,8 @@ func TestAFailedQueryIsUnknownNotMissing(t *testing.T) {
 }
 
 func TestMarketplaceIdentityIsComparedByRepo(t *testing.T) {
-	// The JSON carries no URL and no ref, so repo is the only identity there
-	// is. It must match the way a host compares one: case and .git aside.
+	// owner/name is the identity, whichever field it came out of. It must
+	// match the way a host compares one: case and .git aside.
 	for _, repo := range []string{
 		"Gentleman-Programming/engram",
 		"gentleman-programming/ENGRAM",
@@ -288,6 +309,156 @@ func TestMarketplaceIdentityIsComparedByRepo(t *testing.T) {
 	} {
 		if sameRepo(repo, MarketplaceRepo) {
 			t.Errorf("%q was accepted as the legitimate marketplace", repo)
+		}
+	}
+}
+
+// --- marketplace identity: the two shapes `claude` reports ---
+
+func TestTheURLShapeIsRecognisedAsOurOwnMarketplace(t *testing.T) {
+	// The defect this whole group exists for. deal-kit adds the marketplace by
+	// URL, `claude` reports that one with `url` and `ref` and no `repo`, and
+	// identity read from `repo` alone made deal-kit fail to recognise its own
+	// installation: conflict, empty plan, nothing ever installed.
+	r := newFake(queries(urlMarketplace, enabledPlugin))
+	st := Detect(context.Background(), r, found)
+	if st.State != StateReady {
+		t.Fatalf("State = %v, want StateReady (err %v)", st.State, st.Err)
+	}
+	if st.FoundRepo != MarketplaceRepo {
+		t.Errorf("FoundRepo = %q, want %q", st.FoundRepo, MarketplaceRepo)
+	}
+	if st.FoundRef != MarketplaceTag {
+		t.Errorf("FoundRef = %q, want %q", st.FoundRef, MarketplaceTag)
+	}
+	if st.RefMismatch() {
+		t.Errorf("the marketplace is at the pinned tag and was reported as drifted")
+	}
+	if r.mutated != 0 {
+		t.Errorf("Detect ran %d mutating command(s): %v", r.mutated, r.calls)
+	}
+}
+
+func TestTheShorthandShapeIsStillRecognised(t *testing.T) {
+	// The other shape, which is what the developer's own machine happened to
+	// have and is the reason the defect was invisible there. It reports no
+	// ref, and an unknown ref is not a drift.
+	st := Detect(context.Background(), newFake(queries(goodMarketplace, enabledPlugin)), found)
+	if st.State != StateReady {
+		t.Fatalf("State = %v, want StateReady (err %v)", st.State, st.Err)
+	}
+	if st.FoundRepo != MarketplaceRepo {
+		t.Errorf("FoundRepo = %q, want %q", st.FoundRepo, MarketplaceRepo)
+	}
+	if st.RefKnown() || st.RefMismatch() {
+		t.Errorf("FoundRef = %q: the shorthand shape carries no ref and must not be read as a drift",
+			st.FoundRef)
+	}
+}
+
+func TestAForeignMarketplaceIsAConflictInEveryShape(t *testing.T) {
+	// Recognising the URL shape must not turn into recognising anything. A
+	// marketplace named engram that is not ours stays a conflict, stays
+	// unmutated, and is named honestly on the screen that reports it.
+	cases := []struct {
+		name      string
+		markets   string
+		wantFound string
+	}{
+		{"another repo, shorthand", otherMarketplace, "someone-else/engram"},
+		{"another repo, url", foreignURLMarketplace, "someone-else/engram"},
+		// Two matching path segments on a host that is not ours.
+		{"our name on another host", hostileHostMarketplace,
+			"https://evil.example.com/Gentleman-Programming/engram.git"},
+		// Unparseable: shown verbatim, matched against nothing.
+		{"a url that is not one", unreadableURLMarketplace, "engram"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newFake(queries(tc.markets, enabledPlugin))
+			st := Detect(context.Background(), r, found)
+			if st.State != StateMarketplaceConflict {
+				t.Fatalf("State = %v, want StateMarketplaceConflict (err %v)", st.State, st.Err)
+			}
+			if st.FoundRepo != tc.wantFound {
+				t.Errorf("FoundRepo = %q, want %q", st.FoundRepo, tc.wantFound)
+			}
+			if st.RefKnown() {
+				t.Errorf("FoundRef = %q: a stranger's pinning is not deal-kit's business",
+					st.FoundRef)
+			}
+			p := PlanFor(st)
+			if !p.Empty() {
+				t.Fatalf("a conflicting marketplace produced a plan: %v", p.Lines())
+			}
+			if out := Apply(context.Background(), r, found, p, nil); r.mutated != 0 {
+				t.Errorf("the conflict path ran %d mutating command(s): %v (err %v)",
+					r.mutated, r.calls, out.Err)
+			}
+		})
+	}
+}
+
+func TestAMarketplaceAtAnotherRefIsReportedAndStillInstallable(t *testing.T) {
+	// Same repository, older tag. It is not a conflict — nothing to protect
+	// from — and it is not re-pointed either, because re-pointing means
+	// removing a marketplace the user registered. So: reported, and the plugin
+	// still installs from it.
+	st := Detect(context.Background(), newFake(queries(staleRefMarketplace, noPlugins)), found)
+	if st.State != StatePluginMissing {
+		t.Fatalf("State = %v, want StatePluginMissing (err %v)", st.State, st.Err)
+	}
+	if st.FoundRef != "v1.19.0" || !st.RefMismatch() {
+		t.Errorf("FoundRef = %q, RefMismatch = %v, want %q and true",
+			st.FoundRef, st.RefMismatch(), "v1.19.0")
+	}
+	p := PlanFor(Status{State: st.State, EngramPath: "/bin/engram"})
+	if p.Empty() || p.Blocked() != "" {
+		t.Errorf("a marketplace at another ref blocked the install: empty=%v blocked=%q",
+			p.Empty(), p.Blocked())
+	}
+	for _, line := range p.Lines() {
+		if strings.Contains(line, "marketplace") {
+			t.Errorf("the plan touches the marketplace the user registered: %q", line)
+		}
+	}
+}
+
+func TestTheMarketplaceURLResolvesToTheMarketplaceRepo(t *testing.T) {
+	// The two constants describe the same repository through different fields,
+	// and MarketplaceHost is what joins them. Nothing else pins them together:
+	// editing one and not the others would make deal-kit stop recognising the
+	// marketplace it adds itself, which is the defect this file now covers.
+	if got := repoFromURL(MarketplaceURL); !sameRepo(got, MarketplaceRepo) {
+		t.Errorf("repoFromURL(%q) = %q, want %q", MarketplaceURL, got, MarketplaceRepo)
+	}
+}
+
+func TestRepoFromURLReadsOnlyWhatItCanVerify(t *testing.T) {
+	cases := map[string]string{
+		"https://github.com/Gentleman-Programming/engram.git":       "Gentleman-Programming/engram",
+		"https://github.com/Gentleman-Programming/engram":           "Gentleman-Programming/engram",
+		"https://github.com/Gentleman-Programming/engram/":          "Gentleman-Programming/engram",
+		"https://GitHub.com/Gentleman-Programming/engram":           "Gentleman-Programming/engram",
+		"https://token@github.com/Gentleman-Programming/engram.git": "Gentleman-Programming/engram",
+		// The `#ref` MarketplaceAddArgs appends, echoed back.
+		"https://github.com/Gentleman-Programming/engram.git#v1.20.0": "Gentleman-Programming/engram",
+		// scp-style ssh, and its scheme form with a port.
+		"git@github.com:Gentleman-Programming/engram.git":          "Gentleman-Programming/engram",
+		"ssh://git@github.com:22/Gentleman-Programming/engram.git": "Gentleman-Programming/engram",
+		// Not ours, and not readable. Every one of these must stay "": a URL
+		// nobody could verify is not evidence of a match.
+		"https://gitlab.com/Gentleman-Programming/engram.git":   "",
+		"https://github.com/Gentleman-Programming":              "",
+		"https://github.com/Gentleman-Programming/engram/extra": "",
+		"https://github.com/":                                   "",
+		"github.com/Gentleman-Programming/engram":               "",
+		"engram": "",
+		"":       "",
+	}
+	for raw, want := range cases {
+		if got := repoFromURL(raw); got != want {
+			t.Errorf("repoFromURL(%q) = %q, want %q", raw, got, want)
 		}
 	}
 }

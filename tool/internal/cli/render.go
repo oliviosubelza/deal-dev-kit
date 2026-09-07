@@ -252,6 +252,13 @@ func renderEngram(w, errW io.Writer, p engram.Plan, o engram.Outcome) {
 	if o.Status.Version != "" {
 		fmt.Fprintf(w, "  versión    %s\n", o.Status.Version)
 	}
+	// The same repository at another tag is not a conflict and is not
+	// re-pointed; it is named because it is the only thing that explains a
+	// plugin version that does not match the tag deal-kit pins.
+	if o.Status.RefMismatch() {
+		fmt.Fprintf(w, "  marketplace registrado en %s, no en %s (deal-kit no lo re-apunta)\n",
+			o.Status.FoundRef, engram.MarketplaceTag)
+	}
 
 	// An unconfirmed final state goes to stderr, next to the other warnings:
 	// every command succeeding is not the same as the plugin being ready, and

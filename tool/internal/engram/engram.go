@@ -36,9 +36,20 @@ const (
 
 	// MarketplaceName is how the marketplace registers itself.
 	MarketplaceName = "engram"
-	// MarketplaceRepo identifies the legitimate marketplace. It is the only
-	// identity check available: the JSON carries no full URL and no ref.
+	// MarketplaceRepo identifies the legitimate marketplace, in the owner/name
+	// form a host uses. `claude plugin marketplace list --json` reports that
+	// identity in one of two different fields depending on how the marketplace
+	// was added: the `owner/name` shorthand yields `source: "github"` with a
+	// `repo`, while a URL yields `source: "git"` with `url` and `ref` and no
+	// `repo` at all. deal-kit adds by URL, so the second shape is the one its
+	// own installs produce; both have to resolve to this.
 	MarketplaceRepo = "Gentleman-Programming/engram"
+	// MarketplaceHost is the host MarketplaceRepo is a repository of. A URL
+	// pointing at the same owner/name somewhere else is a different
+	// repository, so identity is only read out of a URL on this host.
+	// TestTheMarketplaceURLResolvesToTheMarketplaceRepo pins it to
+	// MarketplaceURL so the two constants cannot drift apart.
+	MarketplaceHost = "github.com"
 	// MarketplaceURL is what gets cloned.
 	MarketplaceURL = "https://github.com/Gentleman-Programming/engram.git"
 	// MarketplaceTag pins what is cloned. The `#ref` suffix is honoured by
@@ -189,7 +200,8 @@ type Status struct {
 	ClaudePath string // resolved path of the claude executable
 	EngramPath string // resolved path of the engram binary, empty when absent
 	GoPath     string // resolved path of the go toolchain, empty when absent
-	FoundRepo  string // the repo of the marketplace named engram, when one exists
+	FoundRepo  string // what the marketplace named engram points at, when one exists
+	FoundRef   string // the ref our marketplace is pinned at, when the query reports one
 	Version    string // the installed plugin version, when installed
 	Err        error  // why State is StateUnknown
 }
@@ -199,15 +211,43 @@ type Status struct {
 // fails at runtime, so it is reported separately rather than folded into State.
 func (s Status) EngramBinaryFound() bool { return s.EngramPath != "" }
 
+// RefKnown reports whether the query said which ref the marketplace is
+// registered at. Only the URL form carries one: a marketplace added with the
+// owner/name shorthand reports no ref at all, and an unknown ref is not a
+// mismatch.
+func (s Status) RefKnown() bool { return s.FoundRef != "" }
+
+// RefMismatch reports that our marketplace is registered at a ref other than
+// the one deal-kit pins.
+//
+// It is deliberately not a State. The states are a ladder of how far the
+// install got, and a marketplace at another tag is neither further nor less
+// far along: it is the right repository, so nothing about it is a conflict,
+// and the plugin can still be installed and enabled from it. Making it a state
+// would also mean PlanFor answering it, and every answer is wrong — an empty
+// plan would refuse to install a plugin that installs fine, and a re-pointing
+// plan would `marketplace remove` something the user registered. So it is
+// reported and never acted on, the same way a conflicting marketplace is.
+//
+// FoundRef is only ever set for our own marketplace (see Detect), so this
+// never comments on a stranger's pinning.
+func (s Status) RefMismatch() bool { return s.RefKnown() && s.FoundRef != MarketplaceTag }
+
 // GoFound reports whether the Go toolchain is on PATH. It decides which of the
 // two acquisition paths the plan uses, so it is resolved once here rather than
 // looked up again when the plan is built.
 func (s Status) GoFound() bool { return s.GoPath != "" }
 
+// marketplace is one entry of `claude plugin marketplace list --json`. Both
+// shapes are decoded into it: `repo` is filled by the owner/name shorthand,
+// `url` and `ref` by a marketplace added from a URL — which is what
+// MarketplaceAddArgs does, so the second shape is deal-kit's own.
 type marketplace struct {
 	Name            string `json:"name"`
 	Source          string `json:"source"`
 	Repo            string `json:"repo"`
+	URL             string `json:"url"`
+	Ref             string `json:"ref"`
 	InstallLocation string `json:"installLocation"`
 }
 
@@ -249,11 +289,18 @@ func Detect(ctx context.Context, r Runner, look Lookup) Status {
 		st.State = StateMarketplaceMissing
 		return st
 	}
-	st.FoundRepo = mp.Repo
-	if !sameRepo(mp.Repo, MarketplaceRepo) {
+	repo, shown := mp.identity()
+	// Shown rather than repo: when the URL cannot be read as owner/name there
+	// is no repo to name, and the conflict screen has to say what it actually
+	// found instead of an empty dash.
+	st.FoundRepo = shown
+	if repo == "" || !sameRepo(repo, MarketplaceRepo) {
 		st.State = StateMarketplaceConflict
 		return st
 	}
+	// Only now, once this is known to be our marketplace: what ref somebody
+	// else's marketplace is pinned at is none of deal-kit's business.
+	st.FoundRef = strings.TrimSpace(mp.Ref)
 
 	plugins, err := listPlugins(ctx, r, path)
 	if err != nil {
@@ -350,6 +397,83 @@ func findPlugin(plugins []installedPlugin) (installedPlugin, bool) {
 		}
 	}
 	return installedPlugin{}, false
+}
+
+// identity is what this marketplace points at: repo is the owner/name to
+// compare against MarketplaceRepo, and shown is what to put in front of the
+// user for it.
+//
+// They differ in exactly one case. A URL that cannot be reduced to owner/name
+// yields no repo — an unreadable URL is not evidence of a match, and this
+// package refuses to guess everywhere else — but it is still the concrete
+// thing the machine has registered, so it is what gets shown.
+func (m marketplace) identity() (repo, shown string) {
+	if r := strings.TrimSpace(m.Repo); r != "" {
+		return r, r
+	}
+	u := strings.TrimSpace(m.URL)
+	if u == "" {
+		return "", ""
+	}
+	if r := repoFromURL(u); r != "" {
+		return r, r
+	}
+	return "", u
+}
+
+// repoFromURL reduces a git remote to owner/name, or "" when it cannot.
+//
+// It reads the two forms git accepts and `claude` reports: a URL with a scheme
+// and the scp-style ssh address (git@github.com:owner/name.git). The ssh form
+// costs one branch, and without it a marketplace someone added over ssh — the
+// normal thing to do with a repository you also push to — is indistinguishable
+// from a stranger's.
+//
+// Anything else returns "": another host, a path that is not exactly two
+// segments, or a form with no host at all. Unknown stays unknown, which for
+// this caller means a conflict that is reported and never mutated, rather than
+// a match nobody verified.
+func repoFromURL(raw string) string {
+	s := strings.TrimSpace(raw)
+	// A query or fragment is not part of the identity. `#ref` in particular is
+	// how MarketplaceAddArgs pins the tag, and `claude` may echo it back.
+	if i := strings.IndexAny(s, "?#"); i >= 0 {
+		s = s[:i]
+	}
+	var host, path string
+	switch {
+	case strings.Contains(s, "://"):
+		s = s[strings.Index(s, "://")+len("://"):]
+		// Drop userinfo: https://token@github.com/owner/name is the same
+		// repository as the one without it.
+		if i := strings.LastIndex(s, "@"); i >= 0 {
+			s = s[i+1:]
+		}
+		i := strings.Index(s, "/")
+		if i < 0 {
+			return ""
+		}
+		host, path = s[:i], s[i+1:]
+	case strings.Contains(s, "@") && strings.Contains(s, ":"):
+		s = s[strings.Index(s, "@")+1:]
+		i := strings.Index(s, ":")
+		host, path = s[:i], s[i+1:]
+	default:
+		return ""
+	}
+	// A port is not part of the identity either.
+	if i := strings.Index(host, ":"); i >= 0 {
+		host = host[:i]
+	}
+	if !strings.EqualFold(host, MarketplaceHost) {
+		return ""
+	}
+	path = strings.TrimSuffix(strings.Trim(path, "/"), ".git")
+	owner, name, ok := strings.Cut(path, "/")
+	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+		return ""
+	}
+	return owner + "/" + name
 }
 
 // sameRepo compares two owner/name pairs the way a host does: case-insensitive

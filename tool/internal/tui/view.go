@@ -545,7 +545,7 @@ func (m Model) engramLines() []string {
 	out = append(out, "")
 
 	out = append(out, m.field("repo", engram.MarketplaceRepo, colText))
-	out = append(out, m.field("marketplace", engram.MarketplaceTag+"  (fijado)", colText))
+	out = append(out, m.field("marketplace", engramMarketplaceField(st), colText))
 	out = append(out, m.field("plugin", engram.PluginID+"  "+orDash(st.Version), colText))
 	// Say the scope out loud: this writes to the user's global Claude Code
 	// configuration, not to the project deal-kit is otherwise working on.
@@ -602,9 +602,30 @@ func (m Model) engramLines() []string {
 	return append(out, m.keyLines("y", "instalar", "n", "cancelar", "esc", "volver", "q", "salir")...)
 }
 
+// engramMarketplaceField is the pinned tag and, when the marketplace already
+// registered on this machine sits at another one, what it is actually at. Same
+// repository, so it is not a conflict; it is the only thing that explains a
+// plugin version that does not match the pinned tag.
+func engramMarketplaceField(st engram.Status) string {
+	line := engram.MarketplaceTag + "  (fijado)"
+	if st.RefMismatch() {
+		line += " · registrado en " + st.FoundRef
+	}
+	return line
+}
+
 // warnings are the things that do not stop the install but make it not work.
 func (m Model) warnings(st engram.Status) []string {
 	var out []string
+	// Reported, never acted on: re-pointing the marketplace means removing one
+	// the user registered, and deal-kit does not remove what it did not put
+	// there. Said before the install so the version that lands is not a
+	// surprise.
+	if st.RefMismatch() {
+		out = append(out, m.prose("El marketplace registrado está en "+st.FoundRef+
+			", no en "+engram.MarketplaceTag+". Es el mismo repositorio, así que deal-kit no lo toca: "+
+			"para moverlo hay que quitarlo y volver a agregarlo a mano.")...)
+	}
 	// The hooks are shell scripts. cmd.exe cannot run them, so on Windows the
 	// plugin installs and then silently never fires. Shown on Windows only:
 	// internal/cli already gates the same sentence that way, and a warning

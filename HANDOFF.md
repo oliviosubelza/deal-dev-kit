@@ -451,7 +451,7 @@ sale, igual que el install de dependencias.
 | Los argumentos son constantes del paquete | Nunca salen de `kit.yaml`, de un flag ni del entorno. Un instalador que toma sus argumentos de datos se puede apuntar a otro repo editando datos. Nunca hay shell ni `sh -c`. |
 | El `#<tag>` va solo en `marketplace add` | Es el único comando que acepta ref; `install` no. Hoy fijado en `v1.20.0`. |
 | `--yes` en `install`, no en `enable` | `install` lo requiere sin TTY; `enable` no tiene el flag. El gate real de consentimiento es la tecla `y` de la TUI. |
-| Identidad del marketplace por el campo `repo` | El JSON no trae URL completa ni ref. Se compara sin distinguir mayúsculas, `.git` ni barras. |
+| Identidad del marketplace por `owner/name`, salga de `repo` o de `url` | **Corregido — la versión original de esta fila decía "el JSON no trae URL completa ni ref", y es falso: ver §13.** `claude plugin marketplace list --json` devuelve dos formas. El atajo `owner/name` da `source: "github"` con `repo`; una URL da `source: "git"` con `url` y `ref` y **sin** `repo`. deal-kit agrega por URL, así que la segunda forma es la suya. Se compara `owner/name` sin distinguir mayúsculas, `.git` ni barras, y una URL que no se puede reducir a `owner/name` no matchea. |
 | Un marketplace `engram` con otro `repo` **nunca** se toca | El nombre lo ocupó algo que el usuario configuró; reemplazarlo es decisión suya. |
 | JSON ilegible ⇒ `StateUnknown`, no "no instalado" | Adivinar "no instalado" hace que deal-kit vuelva a agregar un marketplace que ya está. |
 | Se ejecuta la ruta que resolvió el `Lookup`, no el nombre pelado | Resolver una cosa y ejecutar otra es cómo un test "hermético" termina corriendo el `claude` real. Se descubrió así: la primera versión del E2E ejecutó el binario de verdad. |
@@ -664,3 +664,90 @@ idéntico byte a byte a `config/persona.md`, registrado en `deal-kit.lock`, y
 ### Tag
 
 `kit-v*` únicamente: no hay cambios bajo `tool/`.
+
+---
+
+## 13. Defecto: deal-kit no reconocía su propio marketplace (`fix/engram-marketplace-identity`)
+
+Confirmado en una máquina Windows real. Un solo bug con tres síntomas.
+
+`claude plugin marketplace list --json` devuelve **dos formas distintas** según
+cómo se agregó el marketplace:
+
+```json
+{ "name": "claude-plugins-official", "source": "github", "repo": "anthropics/claude-plugins-official", "installLocation": "..." }
+{ "name": "engram", "source": "git", "url": "https://github.com/Gentleman-Programming/engram.git", "ref": "v1.20.0", "installLocation": "..." }
+```
+
+`MarketplaceAddArgs` agrega **por URL**, o sea que la forma que produce el
+propio deal-kit es la segunda: `source: "git"`, con `url` y `ref` y **sin
+`repo`**. `Detect` comparaba identidad usando solo `repo`, así que
+`sameRepo("", "Gentleman-Programming/engram")` daba falso y el estado salía
+`StateMarketplaceConflict`: **deal-kit no reconocía su propia instalación**.
+
+Consecuencias observadas: la pantalla decía `Ya hay un marketplace llamado
+engram que apunta a —` (el `—` era el `repo` vacío), el plan quedaba vacío, no
+se instalaba ni el plugin ni el binario, `engram` no quedaba en el PATH y Claude
+Code reportaba `Failed to reconnect to plugin:engram:engram`.
+
+Era invisible en Linux solo porque esa máquina tenía el marketplace agregado con
+el atajo `owner/name`, que sí llena `repo`.
+
+### Qué se corrigió
+
+| Qué | Cómo quedó |
+|---|---|
+| Identidad | `marketplace.identity()` devuelve el `owner/name` a comparar y el texto a mostrar. Sale de `repo` si está; si no, de `url` vía `repoFromURL`. |
+| Normalización de URLs | `repoFromURL` lee URL con esquema y la forma scp de ssh (`git@github.com:owner/name.git`), descarta userinfo, puerto, `?query` y `#fragment` (el `#ref` que agrega `MarketplaceAddArgs`), la barra final y el `.git`. Compara host contra `MarketplaceHost` sin distinguir mayúsculas. |
+| Lo que no se puede leer no matchea | Una URL que no se reduce a exactamente dos segmentos, o que apunta a otro host, devuelve `""` y **no** matchea: desconocido sigue siendo desconocido, igual que con el JSON ilegible. Nuestro `owner/name` en `evil.example.com` es otro repositorio y sigue siendo conflicto. |
+| El conflicto real sigue siendo conflicto | Un marketplace `engram` que apunta a otro lado sigue dando `StateMarketplaceConflict`, plan vacío y cero mutaciones. El bug era un falso positivo, no una excusa para dejar de chequear. |
+| `Status.FoundRepo` honesto | Se llena con lo que identificó al marketplace: el `owner/name` cuando se pudo leer, y la URL cruda cuando no. La pantalla de conflicto nombra la cosa real en vez de un `—`. |
+| `MarketplaceHost` | Constante nueva, fijada contra `MarketplaceURL` por `TestTheMarketplaceURLResolvesToTheMarketplaceRepo`: nada más ataba esas dos constantes, y editar una sin la otra reproduce este mismo defecto. |
+
+### Decisión: el `ref` se **reporta**, no es un estado ni se re-apunta
+
+El JSON trae el ref, así que ahora `Status.FoundRef` lo guarda y
+`Status.RefMismatch()` dice si el marketplace registrado está en otro tag que
+`MarketplaceTag`.
+
+**No es un `State` nuevo.** Los estados son una escalera de cuánto avanzó la
+instalación, y un marketplace en otro tag no está ni más arriba ni más abajo: es
+el repositorio correcto, así que no es conflicto, y el plugin se instala igual
+desde ahí. Volverlo estado obligaría a `PlanFor` a contestarlo y las dos
+respuestas posibles son malas: un plan vacío se negaría a instalar un plugin que
+instala perfecto (el mismo síntoma que este defecto), y un plan que lo re-apunta
+tendría que hacer `marketplace remove` de algo que registró el usuario. Igual que
+con el marketplace ajeno: se reporta y no se toca.
+
+`FoundRef` se llena **solo** cuando el marketplace es el nuestro; el pinning de
+un tercero no es asunto de deal-kit. Y el atajo `owner/name` no trae ref: ref
+desconocido no es drift.
+
+Dónde se ve: el campo `marketplace` de la pantalla (`v1.20.0  (fijado) ·
+registrado en v1.19.0`), una advertencia en prosa que dice que hay que quitarlo y
+volver a agregarlo a mano, y una línea en `renderEngram`.
+
+### Tests, y cómo se verificaron al revés
+
+Cada uno se corrió con la corrección sacada a mano. Mensaje sin la corrección:
+
+| Test | Sin la corrección |
+|---|---|
+| `TestTheURLShapeIsRecognisedAsOurOwnMarketplace` (el JSON real de arriba, textual como fixture `urlMarketplace`) | `State = 3, want StateReady` (3 = `StateMarketplaceConflict`) |
+| `TestTheShorthandShapeIsStillRecognised` | (no regresiona: fija que la forma `github` sigue andando y que un ref desconocido no es drift) |
+| `TestAForeignMarketplaceIsAConflictInEveryShape` | con identidad solo por `repo`: `FoundRepo = "", want "someone-else/engram"` · sin chequeo de host: `State = 6, want StateMarketplaceConflict` (6 = `StateReady`) · con `FoundRepo` = solo lo que matcheó: `FoundRepo = "", want "engram"` |
+| `TestAMarketplaceAtAnotherRefIsReportedAndStillInstallable` | `State = 3, want StatePluginMissing`; y sin guardar el ref: `FoundRef = "", RefMismatch = false, want "v1.19.0" and true` |
+| `TestRepoFromURLReadsOnlyWhatItCanVerify` | sin chequeo de host: `repoFromURL("https://gitlab.com/Gentleman-Programming/engram.git") = "Gentleman-Programming/engram", want ""` |
+| `TestTheMarketplaceURLResolvesToTheMarketplaceRepo` | (fija `MarketplaceURL` ↔ `MarketplaceHost` ↔ `MarketplaceRepo`) |
+| `tui.TestAMarketplaceAtAnotherRefIsNamedOnTheScreen` | `the screen never names the registered ref` |
+
+### Verificación
+
+`gofmt -l .` limpio · `go vet ./...` limpio · `go test ./... -count=1` 12/12 ·
+goldens de la TUI regenerados sin diff (ninguna fixture existente está en otro
+ref) · el chequeo de hermeticidad sobre `~/.local/bin/engram` sigue dando
+`HERMETIC`.
+
+### Tag
+
+`v*`: los cambios son de `tool/`.

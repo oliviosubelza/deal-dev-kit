@@ -1076,6 +1076,26 @@ func TestViewEngramAlreadyInstalled(t *testing.T) {
 	assertGolden(t, "engram-ready", goldenView(m))
 }
 
+func TestAMarketplaceAtAnotherRefIsNamedOnTheScreen(t *testing.T) {
+	// Same repository, another tag. It is not a conflict, so the screen still
+	// offers the install; it is not silent either, because it is the only
+	// thing that explains a plugin version other than the pinned one.
+	drifted := engram.Status{State: engram.StatePluginMissing,
+		ClaudePath: "/usr/local/bin/claude", EngramPath: "/usr/local/bin/engram",
+		FoundRepo: engram.MarketplaceRepo, FoundRef: "v1.19.0"}
+	m := onScreen(New(engramConfig(t, drifted)), screenEngram)
+	view := ansi.ReplaceAllString(m.View(), "")
+	if !strings.Contains(view, "v1.19.0") {
+		t.Errorf("the screen never names the registered ref:\n%s", view)
+	}
+	if !strings.Contains(view, engram.MarketplaceTag) {
+		t.Errorf("the screen never names the pinned tag:\n%s", view)
+	}
+	if reason := m.engramBlocked(); reason != "" {
+		t.Errorf("a marketplace at another ref blocked the install: %q", reason)
+	}
+}
+
 func TestViewEngramConflict(t *testing.T) {
 	conflict := engram.Status{State: engram.StateMarketplaceConflict,
 		ClaudePath: "/usr/local/bin/claude", FoundRepo: "someone-else/engram"}

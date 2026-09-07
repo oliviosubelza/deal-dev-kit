@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Install the deal-kit CLI on Windows.
+  Install the deal CLI on Windows.
 
 .DESCRIPTION
   Downloads a prebuilt binary for this machine, verifies its SHA-256 checksum
@@ -12,19 +12,21 @@
 
 .NOTES
   Environment overrides:
-    DEAL_KIT_VERSION  release tag to install (default: latest)
-    DEAL_KIT_BIN_DIR  install directory
-    DEAL_KIT_REPO     kit repository to verify access to
+    DEAL_VERSION / DEAL_KIT_VERSION  release tag to install (default: latest)
+    DEAL_BIN_DIR / DEAL_KIT_BIN_DIR  install directory
+    DEAL_REPO    / DEAL_KIT_REPO     kit repository to verify access to
 #>
 
 $ErrorActionPreference = 'Stop'
 
 $Repo = 'oliviosubelza/deal-dev-kit'
-$Version = if ($env:DEAL_KIT_VERSION) { $env:DEAL_KIT_VERSION } else { 'latest' }
-$BinDir = if ($env:DEAL_KIT_BIN_DIR) { $env:DEAL_KIT_BIN_DIR } else { Join-Path $env:LOCALAPPDATA 'deal-kit\bin' }
+# The DEAL_KIT_* names still work. The command was renamed, not the contract:
+# breaking a variable someone already set in CI is not worth the tidiness.
+$Version = if ($env:DEAL_VERSION) { $env:DEAL_VERSION } elseif ($env:DEAL_KIT_VERSION) { $env:DEAL_KIT_VERSION } else { 'latest' }
+$BinDir = if ($env:DEAL_BIN_DIR) { $env:DEAL_BIN_DIR } elseif ($env:DEAL_KIT_BIN_DIR) { $env:DEAL_KIT_BIN_DIR } else { Join-Path $env:LOCALAPPDATA 'deal\bin' }
 # Must match kit.DefaultRepo in the CLI: checking a URL the CLI never uses
 # reports a problem that does not exist, and misses one that does.
-$KitRepo = if ($env:DEAL_KIT_REPO) { $env:DEAL_KIT_REPO } else { 'https://github.com/oliviosubelza/deal-dev-kit.git' }
+$KitRepo = if ($env:DEAL_REPO) { $env:DEAL_REPO } elseif ($env:DEAL_KIT_REPO) { $env:DEAL_KIT_REPO } else { 'https://github.com/oliviosubelza/deal-dev-kit.git' }
 
 # Windows PowerShell 5.1 still negotiates TLS 1.0 by default, which GitHub rejects.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -45,7 +47,7 @@ function Resolve-Version {
         throw @"
 no published release found for $Repo.
   Someone needs to cut one first: push a v* tag and let CI build the binaries.
-  To install a specific version once it exists: `$env:DEAL_KIT_VERSION = 'v0.1.0'
+  To install a specific version once it exists: `$env:DEAL_VERSION = 'v0.1.0'
 "@
     }
     return $release.tag_name
@@ -53,13 +55,16 @@ no published release found for $Repo.
 
 $target = Get-Target
 $version = Resolve-Version
+# The published asset keeps the old name on purpose: internal/selfupdate
+# builds it from a literal, so renaming it would leave every already-installed
+# binary unable to find its own update. Only the installed file is `deal`.
 $asset = "deal-kit_$target.exe"
 $base = "https://github.com/$Repo/releases/download/$version"
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid())
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
-    Write-Host "==> downloading deal-kit $version ($target)"
+    Write-Host "==> downloading deal $version ($target)"
     $exe = Join-Path $tmp 'deal-kit.exe'
     Invoke-WebRequest "$base/$asset" -OutFile $exe -UseBasicParsing
 
@@ -76,8 +81,17 @@ try {
     }
 
     New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
-    Copy-Item $exe (Join-Path $BinDir 'deal-kit.exe') -Force
-    Write-Host "==> installed to $(Join-Path $BinDir 'deal-kit.exe')"
+    Copy-Item $exe (Join-Path $BinDir 'deal.exe') -Force
+    Write-Host "==> installed to $(Join-Path $BinDir 'deal.exe')"
+
+    # A pre-rename install is still on PATH under its old name, and two copies
+    # with different versions is worse than either alone: the user runs one and
+    # reads the other's release notes.
+    $old = Get-Command deal-kit -ErrorAction SilentlyContinue
+    if ($old) {
+        Write-Warning "an older install is still at $($old.Source)"
+        Write-Warning 'It is the same tool under the previous name; delete it.'
+    }
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -100,9 +114,9 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
         Write-Host '    ok'
     } else {
         Write-Warning "cannot reach $KitRepo"
-        Write-Warning 'deal-kit is installed but cannot fetch the kit yet.'
+        Write-Warning 'deal is installed but cannot fetch the kit yet.'
         Write-Warning 'If the repository is private, make sure your git credentials have access.'
     }
 } else {
-    Write-Warning 'git is not installed; deal-kit needs it to fetch the kit.'
+    Write-Warning 'git is not installed; deal needs it to fetch the kit.'
 }

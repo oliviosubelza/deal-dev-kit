@@ -623,3 +623,44 @@ Se corrió el instalador **de verdad** contra un `HOME` vacío: descarga con
 progreso, checksum verificado, `engram 1.20.0` ejecutable en el destino, plugin
 instalado y habilitado, `mcpServers` presente en `claude plugin list --json`.
 Ahí apareció el defecto del `enable`.
+
+---
+
+## 12. Persona de comunicación (`config/persona.md`)
+
+Regla de tono siempre activa, instalada en los tres perfiles como
+`.claude/persona.md`. Es el primer artefacto `type: config` del kit, y estrena el
+directorio `config/`.
+
+| Archivo | Qué hace |
+|---|---|
+| `config/persona.md` | el texto de la persona (inglés, como el resto de los artefactos) |
+| `kit.yaml` | artefacto `general/persona` + entrada en los tres `profiles`, después de `general/tdd` |
+| `README.md` | sección "The communication persona": el paso manual del import |
+
+### Decisiones
+
+| Decisión | Razón |
+|---|---|
+| `config`, no `skill` | Una skill se carga solo cuando el modelo juzga que su `description` matchea la tarea. Una regla de tono que vale para **toda** respuesta no puede ser condicional. `general/conventions`, `general/security` y `general/tdd` sí describen una condición ("antes de escribir código"); esta no tiene ninguna. |
+| Archivo propio + `@import`, no escribir `CLAUDE.md` | Un artefacto `config` copia su `src` tal cual a `a.Dest` (`tool/internal/plan/plan.go:188-196`: solo `skill`, `command` y `agent` derivan destino). Apuntar `dest` a `CLAUDE.md` pisaría lo que el proyecto ya tenga ahí. |
+| La línea `@.claude/persona.md` la agrega una persona, una vez | El kit no es dueño de `CLAUDE.md`. Después de que la línea existe, el kit mantiene el contenido al día como cualquier otro artefacto. |
+| **Sin frontmatter** | `CheckFrontmatterName` se invoca solo desde `repo_manifest_test.go:59,68`, dentro de un `switch a.Type` con casos `skill`, `agent` y `command`. `config` cae en el default: no se chequea. Un frontmatter decorativo sería ruido que nada valida. |
+| `applies_to` solo en `kit.yaml` | La herramienta lo lee de `manifest.go:30` y nunca del archivo. Que 2 de 9 skills lo repitan en su frontmatter es drift, no convención. |
+
+### Verificación
+
+`go test ./internal/kit/ -count=1` ok · `gofmt -l .` limpio · `go vet ./...`
+limpio · `go test ./... -count=1` 12/12. Goldens de la TUI sin diff (el artefacto
+entra en el grupo "Team conventions", que ya existía).
+
+Binario real (`/tmp/deal-kit`, `--kit-dir` al working tree) contra tres proyectos
+scratch fuera del repo: `crm-deal-web` instalado de verdad — `.claude/persona.md`
+idéntico byte a byte a `config/persona.md`, registrado en `deal-kit.lock`, y
+`status` lo reporta `general/persona ok`. `crm-deal-orders-service` y
+`crm-deal-mobile` verificados con `--dry-run`: el plan incluye
+`crear .claude/persona.md` en ambos.
+
+### Tag
+
+`kit-v*` únicamente: no hay cambios bajo `tool/`.

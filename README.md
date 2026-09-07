@@ -81,8 +81,28 @@ them the plugin installs but never runs.
 | ----------- | ----------------------------------------------------------------- |
 | `kit.yaml`  | Manifest of every installable artifact, its destination and deps  |
 | `skills/`   | Agent skills: development conventions, PR workflow                |
+| `config/`   | Always-on agent rules, imported from the project's `CLAUDE.md`    |
 | `ui-kit/`   | UI component source, copied into projects by the CLI              |
 | `tool/`     | The `deal-kit` CLI (Go)                                           |
+
+### The communication persona
+
+`config/persona.md` installs to `.claude/persona.md` in all three project types.
+It is not a skill: a skill loads only when the agent judges its `description` to
+match the task, and a tone rule that must hold for every response cannot be
+conditional.
+
+Getting it loaded takes one manual step, done once per repository — add this
+line to the project's `CLAUDE.md`:
+
+```
+@.claude/persona.md
+```
+
+The CLI never writes `CLAUDE.md`: a `config` artifact copies its source verbatim
+to its destination, so pointing it at `CLAUDE.md` would clobber whatever the
+project already has there. After the import line exists, the kit keeps the
+persona's content current like any other artifact.
 
 ## Ownership rules
 

@@ -3,7 +3,11 @@ version: 2
 builds:
   - id: deal-kit
     main: ./cmd/deal-kit
-    binary: deal-kit
+    # The command is `deal`. The asset name below deliberately stays
+    # deal-kit_<os>_<arch>: internal/selfupdate builds that name from a
+    # literal, so renaming the asset would leave every already-installed
+    # binary unable to find its own update, forever.
+    binary: deal
     env: [CGO_ENABLED=0]
     ldflags:
       - -s -w -X main.version={{.Version}}

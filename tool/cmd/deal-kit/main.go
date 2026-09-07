@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/cli"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
@@ -44,7 +45,7 @@ func run(args []string) error {
 		return fmt.Errorf("comando desconocido %q", name)
 	}
 
-	fs := flag.NewFlagSet("deal-kit "+name, flag.ContinueOnError)
+	fs := flag.NewFlagSet(invoked()+" "+name, flag.ContinueOnError)
 	var (
 		kitDir  = fs.String("kit-dir", os.Getenv("DEAL_KIT_DIR"), "usar un checkout local del kit en lugar de descargarlo")
 		repo    = fs.String("repo", envOr("DEAL_KIT_REPO", kit.DefaultRepo), "repositorio del kit desde donde descargar")
@@ -87,8 +88,31 @@ func envOr(name, fallback string) string {
 	return fallback
 }
 
+// invoked is the name the user actually typed, taken from argv[0] rather than
+// hardcoded. The published binary is `deal`, but a developer building from
+// source gets `deal-kit` from the package directory, and someone may rename it
+// again; usage that names a command the reader cannot run is worse than no
+// usage. Falls back to the published name when argv[0] is unusable.
+func invoked() string {
+	if len(os.Args) == 0 || os.Args[0] == "" {
+		return "deal"
+	}
+	// Cut on both separators rather than filepath.Base: that one only knows
+	// the separator of the platform it was built for, and an argv[0] carrying
+	// the other one — a Windows path seen through WSL interop, say — would
+	// come back as the whole path instead of the command name.
+	name := os.Args[0]
+	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
+		name = name[i+1:]
+	}
+	if name == "" {
+		return "deal"
+	}
+	return strings.TrimSuffix(name, ".exe")
+}
+
 func usage() {
-	fmt.Fprintf(os.Stderr, "deal-kit %s\n\nUso:\n  deal-kit <comando> [opciones]\n\nComandos:\n", version)
+	fmt.Fprintf(os.Stderr, "%s %s\n\nUso:\n  %s <comando> [opciones]\n\nComandos:\n", invoked(), version, invoked())
 	for _, c := range visibleCommands() {
 		label := c.name
 		if c.name == "browse" {

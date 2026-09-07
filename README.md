@@ -24,13 +24,22 @@ with `DEAL_KIT_VERSION=v1.4.0`.
 
 ## Usage
 
+The command is `deal`:
+
 ```sh
-deal-kit init                    # set up this project
-deal-kit add ui-kit/data-table   # install an artifact
-deal-kit status                  # what is installed, and has it drifted
-deal-kit update                  # move the kit pin forward
-deal-kit doctor                  # diagnose drift and broken setup
+deal init                    # set up this project
+deal add ui-kit/data-table   # install an artifact
+deal status                  # what is installed, and has it drifted
+deal update                  # move the kit pin forward
+deal doctor                  # diagnose drift and broken setup
 ```
+
+An install from before the rename keeps whatever filename it has on disk:
+`self-update` replaces the running binary in place and never renames it. To
+switch to `deal`, delete the old file and install again. The release assets are
+still named `deal-kit_<os>_<arch>` on purpose — `self-update` builds that name
+from a literal, so renaming them would leave every already-installed binary
+unable to find its own update.
 
 Every command that writes to disk prints its plan first. Pass `--dry-run` to stop
 there, or `--yes` to skip confirmation in CI.

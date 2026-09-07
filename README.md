@@ -1,7 +1,7 @@
 # deal-dev-kit
 
 The team's shared development kit: UI components, agent skills, and development
-conventions — plus `deal-kit`, the CLI that installs and updates them in your
+conventions — plus the deal-kit CLI, `deal`, which installs and updates them in your
 project.
 
 ## Install the CLI
@@ -19,8 +19,10 @@ irm https://raw.githubusercontent.com/oliviosubelza/deal-dev-kit/main/tool/scrip
 ```
 
 No Go toolchain required: the installer downloads a prebuilt binary for your
-platform and verifies its SHA-256 checksum before installing it. Pin a version
-with `DEAL_KIT_VERSION=v1.4.0`.
+platform and verifies its SHA-256 checksum before installing it. It installs the
+command as `deal`, adds its directory to your user PATH, and tells you if an
+install from before the rename is still on PATH under the old name. Pin a
+version with `DEAL_VERSION=v1.4.0` (`DEAL_KIT_VERSION` still works).
 
 ## Usage
 
@@ -36,7 +38,8 @@ deal doctor                  # diagnose drift and broken setup
 
 An install from before the rename keeps whatever filename it has on disk:
 `self-update` replaces the running binary in place and never renames it. To
-switch to `deal`, delete the old file and install again. The release assets are
+switch to `deal`, run the installer above again and delete the old file — it
+will point at it. The release assets are
 still named `deal-kit_<os>_<arch>` on purpose — `self-update` builds that name
 from a literal, so renaming them would leave every already-installed binary
 unable to find its own update.
@@ -46,7 +49,7 @@ there, or `--yes` to skip confirmation in CI.
 
 ### Engram for Claude Code
 
-Running `deal-kit` with no subcommand opens the interactive browser, whose menu
+Running `deal` with no subcommand opens the interactive browser, whose menu
 carries an **Engram para Claude Code** entry. It installs the
 [Engram](https://github.com/Gentleman-Programming/engram) plugin — persistent
 memory for the agent — into Claude Code at **user-global scope**, by shelling

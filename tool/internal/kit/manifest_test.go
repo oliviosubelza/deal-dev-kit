@@ -663,3 +663,95 @@ artifacts:
 		t.Errorf("ProjectTypeNames() = %q, want %q", got, want)
 	}
 }
+
+// --- ensure_line ---
+
+// ensureLineManifest is a minimal manifest whose one artifact carries the
+// given ensure_line block, so each case below differs only in that block.
+func ensureLineManifest(block string) string {
+	return `
+version: 2
+project_types: { web: { match: crm-deal-web } }
+profiles:
+  web: [general/persona]
+artifacts:
+  - id: general/persona
+    type: config
+    applies_to: [web]
+    src: config/persona.md
+    dest: ".claude/persona.md"
+    ensure_line:
+` + block
+}
+
+func TestParseManifestReadsEnsureLine(t *testing.T) {
+	m, err := ParseManifest([]byte(ensureLineManifest(
+		"      file: CLAUDE.md\n      line: \"@.claude/persona.md\"\n")))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	a, ok := m.Artifact("general/persona")
+	if !ok {
+		t.Fatal("general/persona missing")
+	}
+	if a.EnsureLine == nil {
+		t.Fatal("EnsureLine = nil, want the parsed block")
+	}
+	if a.EnsureLine.File != "CLAUDE.md" || a.EnsureLine.Line != "@.claude/persona.md" {
+		t.Errorf("EnsureLine = %+v, want {CLAUDE.md @.claude/persona.md}", *a.EnsureLine)
+	}
+}
+
+// An artifact with no ensure_line must keep a nil pointer: the plan uses it to
+// decide whether the artifact has a line to guarantee at all.
+func TestParseManifestLeavesEnsureLineNilWhenAbsent(t *testing.T) {
+	m, err := ParseManifest([]byte(validManifest))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, a := range m.Artifacts {
+		if a.EnsureLine != nil {
+			t.Errorf("artifact %q: EnsureLine = %+v, want nil", a.ID, *a.EnsureLine)
+		}
+	}
+}
+
+func TestParseManifestRejectsAnIncompleteEnsureLine(t *testing.T) {
+	tests := []struct {
+		name    string
+		block   string
+		wantErr string
+	}{
+		{
+			name:    "no file",
+			block:   "      line: \"@.claude/persona.md\"\n",
+			wantErr: `el ensure_line del artefacto "general/persona" no tiene file`,
+		},
+		{
+			name:    "no line",
+			block:   "      file: CLAUDE.md\n",
+			wantErr: `el ensure_line del artefacto "general/persona" no tiene line`,
+		},
+		{
+			name:    "blank line",
+			block:   "      file: CLAUDE.md\n      line: \"   \"\n",
+			wantErr: `el ensure_line del artefacto "general/persona" no tiene line`,
+		},
+		{
+			name:    "multi-line value",
+			block:   "      file: CLAUDE.md\n      line: \"@a.md\\n@b.md\"\n",
+			wantErr: "tiene un salto de línea",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseManifest([]byte(ensureLineManifest(tt.block)))
+			if err == nil {
+				t.Fatalf("expected an error containing %q, got none", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %q, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}

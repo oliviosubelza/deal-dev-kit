@@ -27,14 +27,20 @@ func renderPlan(w io.Writer, p *plan.Plan, manager pm.Manager, hasManager, noDep
 
 	fmt.Fprintln(w, "  plan:")
 	for _, a := range changes {
-		fmt.Fprintf(w, "    %-*s %s\n", kindW, kindLabel(a.Kind), a.Path)
+		target := a.Path
+		if a.Kind == plan.AppendLine {
+			// Naming only the file would hide the whole of what happens to
+			// it: this action adds one line and rewrites nothing.
+			target += "  (" + a.Line + ")"
+		}
+		fmt.Fprintf(w, "    %s %s\n", padRight(kindLabel(a.Kind), kindW), target)
 	}
 	if len(p.Deps) > 0 && !noDeps {
 		name := string(manager)
 		if !hasManager {
 			name = "sin package manager detectado"
 		}
-		fmt.Fprintf(w, "    %-*s %s  (%s)\n", kindW, "dependencias", strings.Join(depSpecs(p.Deps), ", "), name)
+		fmt.Fprintf(w, "    %s %s  (%s)\n", padRight("dependencias", kindW), strings.Join(depSpecs(p.Deps), ", "), name)
 	}
 
 	if len(blocked) > 0 {
@@ -48,10 +54,10 @@ func renderPlan(w io.Writer, p *plan.Plan, manager pm.Manager, hasManager, noDep
 }
 
 // kindW is the width of the action column in the plan. It is sized to the
-// longest label a change can carry ("sobrescribir", and "dependencias" on the
-// deps line), so the paths line up in one column. Every label is ASCII, so
-// fmt's byte-counting padding is correct here.
-const kindW = 12
+// longest label a change can carry ("agregar línea"), so the paths line up in
+// one column. Padding goes through padRight, which counts runes: "línea" is
+// one byte longer than it is wide and fmt's %-Ns counts bytes.
+const kindW = 13
 
 // kindLabel is the Spanish word shown for an action. The plan.Kind constants
 // stay in English: they are internal domain values, never printed directly.
@@ -63,6 +69,8 @@ func kindLabel(k plan.Kind) string {
 		return "sobrescribir"
 	case plan.Delete:
 		return "borrar"
+	case plan.AppendLine:
+		return "agregar línea"
 	case plan.Blocked:
 		return "bloqueado"
 	case plan.Unchanged:
@@ -106,6 +114,11 @@ func renderStatus(w io.Writer, artifacts []kit.Artifact, orphans []string, p *pl
 		switch worst[id] {
 		case plan.Blocked:
 			fmt.Fprintln(w, statusLine(id, "MODIFICADO", detail[id]))
+		case plan.AppendLine:
+			// The tracked state for an ensured line is presence, not content,
+			// so the label answers that question and no other: the artifact's
+			// own files are fine, its import line is not in place.
+			fmt.Fprintln(w, statusLine(id, "FALTA IMPORT", detail[id]))
 		case plan.Create, plan.Overwrite, plan.Delete:
 			fmt.Fprintln(w, statusLine(id, "DESACTUALIZADO", detail[id]))
 		default:
@@ -140,7 +153,7 @@ func rank(k plan.Kind) int {
 	switch k {
 	case plan.Blocked:
 		return 3
-	case plan.Create, plan.Overwrite, plan.Delete:
+	case plan.Create, plan.Overwrite, plan.Delete, plan.AppendLine:
 		return 2
 	case plan.Unchanged:
 		return 1
@@ -196,6 +209,11 @@ func counts(r plan.DirSummary) string {
 	}
 	if r.Deleted > 0 {
 		parts = append(parts, fmt.Sprintf("-%d %s", r.Deleted, plural(r.Deleted, "eliminado", "eliminados")))
+	}
+	// A line is not a file: it gets its own word rather than being counted as
+	// something deal-kit created, because it landed in a file it does not own.
+	if r.Lines > 0 {
+		parts = append(parts, fmt.Sprintf("+%d %s", r.Lines, plural(r.Lines, "línea", "líneas")))
 	}
 	return strings.Join(parts, "  ")
 }

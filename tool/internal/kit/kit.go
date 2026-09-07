@@ -28,6 +28,24 @@ type Artifact struct {
 	Dest      string            // destination template, e.g. "{ui}/data-table"
 	Requires  []string          // other artifact IDs pulled in transitively
 	NPM       map[string]string // npm dependency -> semver range
+
+	// EnsureLine, when set, is a single line the artifact guarantees exists
+	// in a file the kit does NOT own. Nil for every other artifact.
+	EnsureLine *EnsuredLine
+}
+
+// EnsuredLine is the kit.yaml `ensure_line` block: one exact line that must be
+// present in File. It exists because some artifacts only take effect once a
+// project-owned file references them — the persona is copied to
+// .claude/persona.md, but Claude Code never loads it until CLAUDE.md imports
+// it. Copying a whole CLAUDE.md is not an option: the project owns that file.
+//
+// The surface is deliberately one file and one literal line. It is not a
+// templating system: anything richer would make the kit a second author of a
+// file it does not own, which is exactly what the ownership rules forbid.
+type EnsuredLine struct {
+	File string // destination template, resolved like any other dest
+	Line string // the exact line, matched and written verbatim
 }
 
 // Manifest is the parsed kit.yaml at a given kit version.

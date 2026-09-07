@@ -53,8 +53,11 @@ artifacts:
   # ---- always-on config ----
   # Not a skill: a skill loads only when the agent judges its description to
   # match the task, and a tone rule that applies to every response cannot be
-  # conditional. The project's CLAUDE.md imports this file with `@.claude/persona.md`.
-  - { id: general/persona,      type: config, applies_to: [backend, web, mobile], src: config/persona.md, dest: ".claude/persona.md", group: "Team conventions" }
+  # conditional. `ensure_line` adds the import to the project's CLAUDE.md,
+  # which the kit does not own: without that line the file is installed and
+  # the persona silently never loads.
+  - { id: general/persona,      type: config, applies_to: [backend, web, mobile], src: config/persona.md, dest: ".claude/persona.md", group: "Team conventions",
+      ensure_line: { file: "CLAUDE.md", line: "@.claude/persona.md" } }
 
   - { id: backend/architecture, type: skill, applies_to: [backend], src: skills/backend/architecture, group: "Backend" }
   - { id: backend/connections,  type: skill, applies_to: [backend], src: skills/backend/connections, group: "Backend" }

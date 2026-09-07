@@ -128,3 +128,31 @@ func TestSummarizeKeepsADirectoryThatEarnsItsRow(t *testing.T) {
 		t.Errorf("got %+v, want src and src/shared/lib kept apart", got)
 	}
 }
+
+// The closing tree and the "listo: N archivo(s)" footer both derive from the
+// plan's changes, so an ensured line has to appear in the tree too or the two
+// numbers disagree in front of the user.
+func TestSummarizeCountsAnEnsuredLine(t *testing.T) {
+	rows := Summarize([]Action{
+		{Kind: Create, Path: ".claude/persona.md"},
+		{Kind: AppendLine, Path: "CLAUDE.md", Line: "@.claude/persona.md"},
+	})
+
+	total := 0
+	var claude *DirSummary
+	for i, r := range rows {
+		total += r.Total()
+		if r.Dir == "CLAUDE.md" {
+			claude = &rows[i]
+		}
+	}
+	if total != 2 {
+		t.Errorf("rows account for %d changes, want 2: %+v", total, rows)
+	}
+	if claude == nil {
+		t.Fatalf("CLAUDE.md is missing from the summary: %+v", rows)
+	}
+	if claude.Lines != 1 || claude.Created != 0 {
+		t.Errorf("CLAUDE.md row = %+v, want one line and no created file", *claude)
+	}
+}

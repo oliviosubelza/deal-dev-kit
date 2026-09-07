@@ -370,11 +370,11 @@ func (m Model) planLines() []string {
 	}
 
 	if len(changes) > 0 {
-		created, overwritten, deleted := countKinds(changes)
+		created, overwritten, deleted, lines := countKinds(changes)
 		// Say the scope out loud: the plan covers everything selected across
 		// both screens, not just the one the user came from.
 		out = append(out,
-			subtle.Render("Todo el proyecto  ·  "+summary(created, overwritten, deleted)), "")
+			subtle.Render("Todo el proyecto  ·  "+summary(created, overwritten, deleted, lines)), "")
 
 		skills, components := m.splitChanges(changes)
 		budget := 12
@@ -438,7 +438,13 @@ func appendChangeSection(out []string, title string, actions []plan.Action, budg
 		shown = shown[:budget]
 	}
 	for _, a := range shown {
-		out = append(out, "  "+kindGlyph(a.Kind)+bodyText.Render("  "+a.Path))
+		label := a.Path
+		if a.Kind == plan.AppendLine {
+			// The file is the project's; only the line is ours. Say so, or the
+			// row reads as "deal-kit is going to write your CLAUDE.md".
+			label += "  " + a.Line
+		}
+		out = append(out, "  "+kindGlyph(a.Kind)+bodyText.Render("  "+label))
 	}
 	if len(actions) > len(shown) {
 		out = append(out, faintText.Render(
@@ -447,7 +453,7 @@ func appendChangeSection(out []string, title string, actions []plan.Action, budg
 	return append(out, ""), budget - len(shown)
 }
 
-func countKinds(actions []plan.Action) (created, overwritten, deleted int) {
+func countKinds(actions []plan.Action) (created, overwritten, deleted, lines int) {
 	for _, a := range actions {
 		switch a.Kind {
 		case plan.Create:
@@ -456,12 +462,16 @@ func countKinds(actions []plan.Action) (created, overwritten, deleted int) {
 			overwritten++
 		case plan.Delete:
 			deleted++
+		case plan.AppendLine:
+			lines++
 		}
 	}
-	return created, overwritten, deleted
+	return created, overwritten, deleted, lines
 }
 
-func summary(created, overwritten, deleted int) string {
+// summary counts ensured lines apart from files. Folding them into "nuevos"
+// would claim deal-kit created a file it only appended one line to.
+func summary(created, overwritten, deleted, lines int) string {
 	var parts []string
 	if created > 0 {
 		parts = append(parts, fmt.Sprintf("%d nuevos", created))
@@ -471,6 +481,13 @@ func summary(created, overwritten, deleted int) string {
 	}
 	if deleted > 0 {
 		parts = append(parts, fmt.Sprintf("%d eliminados", deleted))
+	}
+	if lines > 0 {
+		word := "líneas"
+		if lines == 1 {
+			word = "línea"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", lines, word))
 	}
 	return strings.Join(parts, "  ·  ")
 }
@@ -484,6 +501,8 @@ func kindGlyph(k plan.Kind) string {
 		return warnText.Render("~")
 	case plan.Delete:
 		return badText.Render("−")
+	case plan.AppendLine:
+		return goodText.Render("+")
 	}
 	return bg.Render(" ")
 }

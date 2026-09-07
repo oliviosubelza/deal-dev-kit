@@ -24,14 +24,19 @@ type rawProjectType struct {
 	Roots map[string]string `yaml:"roots"`
 }
 type rawArtifact struct {
-	ID        string            `yaml:"id"`
-	Type      string            `yaml:"type"`
-	Group     string            `yaml:"group"`
-	AppliesTo []string          `yaml:"applies_to"`
-	Src       string            `yaml:"src"`
-	Dest      string            `yaml:"dest"`
-	Requires  []string          `yaml:"requires"`
-	NPM       map[string]string `yaml:"npm"`
+	ID         string            `yaml:"id"`
+	Type       string            `yaml:"type"`
+	Group      string            `yaml:"group"`
+	AppliesTo  []string          `yaml:"applies_to"`
+	Src        string            `yaml:"src"`
+	Dest       string            `yaml:"dest"`
+	Requires   []string          `yaml:"requires"`
+	NPM        map[string]string `yaml:"npm"`
+	EnsureLine *rawEnsureLine    `yaml:"ensure_line"`
+}
+type rawEnsureLine struct {
+	File string `yaml:"file"`
+	Line string `yaml:"line"`
 }
 
 // supportedManifestVersions enumerates every kit.yaml schema version this CLI
@@ -109,6 +114,21 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		a := Artifact{
 			ID: ra.ID, Type: ra.Type, Group: ra.Group, Src: ra.Src, Dest: ra.Dest,
 			Requires: ra.Requires, NPM: ra.NPM,
+		}
+		if ra.EnsureLine != nil {
+			if ra.EnsureLine.File == "" {
+				return nil, fmt.Errorf("kit.yaml: el ensure_line del artefacto %q no tiene file", ra.ID)
+			}
+			if strings.TrimSpace(ra.EnsureLine.Line) == "" {
+				return nil, fmt.Errorf("kit.yaml: el ensure_line del artefacto %q no tiene line", ra.ID)
+			}
+			// A multi-line value would mean the kit is writing a block into a
+			// file it does not own, and "is the line present?" would stop
+			// having a single answer. One line, or nothing.
+			if strings.ContainsAny(ra.EnsureLine.Line, "\r\n") {
+				return nil, fmt.Errorf("kit.yaml: el ensure_line del artefacto %q tiene un salto de línea; debe ser una sola línea", ra.ID)
+			}
+			a.EnsureLine = &EnsuredLine{File: ra.EnsureLine.File, Line: ra.EnsureLine.Line}
 		}
 		if a.Group == "" {
 			// Fall back to the ID's first segment so an artifact always lands

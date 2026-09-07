@@ -92,17 +92,17 @@ It is not a skill: a skill loads only when the agent judges its `description` to
 match the task, and a tone rule that must hold for every response cannot be
 conditional.
 
-Getting it loaded takes one manual step, done once per repository — add this
-line to the project's `CLAUDE.md`:
+Claude Code only loads it once the project's `CLAUDE.md` imports it, so the
+artifact declares that line in `kit.yaml` and the CLI guarantees it:
 
-```
-@.claude/persona.md
+```yaml
+ensure_line: { file: "CLAUDE.md", line: "@.claude/persona.md" }
 ```
 
-The CLI never writes `CLAUDE.md`: a `config` artifact copies its source verbatim
-to its destination, so pointing it at `CLAUDE.md` would clobber whatever the
-project already has there. After the import line exists, the kit keeps the
-persona's content current like any other artifact.
+`init` adds the line if it is missing, creates `CLAUDE.md` holding it if there
+is none, and does nothing if it is already there. It never rewrites the rest of
+the file: `CLAUDE.md` belongs to the project, and the CLI only appends one line
+to it. Running `init` repeatedly converges — the import is never duplicated.
 
 ## Ownership rules
 
@@ -111,6 +111,12 @@ The CLI records every file it writes in the project's `deal-kit.lock`, with a ha
 - It never writes to or deletes a path that is not in the lockfile.
 - If a managed file was edited locally, the sync reports it and refuses to
   overwrite. Bring the change back to this repository instead.
+
+A line added through `ensure_line` is recorded separately, under `lines`, and
+without a hash — the CLI wrote one line of that file, not all of it. What
+`status` tracks there is whether the line is still present, so editing the rest
+of `CLAUDE.md` is never reported as drift; deleting the line is reported as
+`FALTA IMPORT`, and the next sync puts it back.
 
 ## Versioning
 

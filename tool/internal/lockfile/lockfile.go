@@ -27,10 +27,33 @@ type File struct {
 	Artifacts   []Installed       `yaml:"artifacts"`
 }
 
-// Installed records one installed artifact and every file it owns.
+// Installed records one installed artifact: every file it owns, and every
+// line it guaranteed inside a file it does not own.
 type Installed struct {
-	ID    string      `yaml:"id"`
-	Files []OwnedFile `yaml:"files"`
+	ID    string        `yaml:"id"`
+	Files []OwnedFile   `yaml:"files"`
+	Lines []EnsuredLine `yaml:"lines,omitempty"`
+}
+
+// EnsuredLine records a line the CLI guaranteed inside a file the project
+// owns, such as the `@.claude/persona.md` import in CLAUDE.md.
+//
+// It deliberately carries NO hash, unlike OwnedFile. The two record different
+// things because the CLI has different authority over them. For an OwnedFile
+// the CLI wrote every byte, so a hash mismatch means "a human edited our
+// file" and is exactly the right alarm. CLAUDE.md is edited by the team all
+// day for reasons that have nothing to do with the kit: hashing it would
+// report drift on every single run, and a status that always says "changed"
+// is worse than no status at all, because people stop reading it.
+//
+// So the tracked state here is presence, not content: the only question the
+// CLI can honestly ask about a file it does not own is "is my line still in
+// it?". The answer is recomputed from the file on every plan; this record
+// exists so deal-kit.lock still shows what the CLI did to the project, and so
+// the mutation is auditable rather than invisible.
+type EnsuredLine struct {
+	Path string `yaml:"path"` // slash-separated, relative to the project root
+	Line string `yaml:"line"` // the exact line the CLI guaranteed is present
 }
 
 // OwnedFile binds a path to the hash the CLI wrote. A mismatch on the next
@@ -79,6 +102,13 @@ func (f *File) sort() {
 	for i := range f.Artifacts {
 		files := f.Artifacts[i].Files
 		sort.Slice(files, func(a, b int) bool { return files[a].Path < files[b].Path })
+		lines := f.Artifacts[i].Lines
+		sort.Slice(lines, func(a, b int) bool {
+			if lines[a].Path != lines[b].Path {
+				return lines[a].Path < lines[b].Path
+			}
+			return lines[a].Line < lines[b].Line
+		})
 	}
 }
 

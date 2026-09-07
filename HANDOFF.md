@@ -2,7 +2,7 @@
 
 Documento de traspaso. **Sí está versionado**: `git ls-files HANDOFF.md` lo lista y
 no aparece en `.gitignore` (la versión anterior de esta línea afirmaba lo contrario).
-Última actualización: 2026-09-04.
+Última actualización: 2026-09-07.
 
 ---
 
@@ -636,15 +636,15 @@ directorio `config/`.
 |---|---|
 | `config/persona.md` | el texto de la persona (inglés, como el resto de los artefactos) |
 | `kit.yaml` | artefacto `general/persona` + entrada en los tres `profiles`, después de `general/tdd` |
-| `README.md` | sección "The communication persona": el paso manual del import |
+| `README.md` | sección "The communication persona" (reescrita en §13) |
 
 ### Decisiones
 
 | Decisión | Razón |
 |---|---|
 | `config`, no `skill` | Una skill se carga solo cuando el modelo juzga que su `description` matchea la tarea. Una regla de tono que vale para **toda** respuesta no puede ser condicional. `general/conventions`, `general/security` y `general/tdd` sí describen una condición ("antes de escribir código"); esta no tiene ninguna. |
-| Archivo propio + `@import`, no escribir `CLAUDE.md` | Un artefacto `config` copia su `src` tal cual a `a.Dest` (`tool/internal/plan/plan.go:188-196`: solo `skill`, `command` y `agent` derivan destino). Apuntar `dest` a `CLAUDE.md` pisaría lo que el proyecto ya tenga ahí. |
-| La línea `@.claude/persona.md` la agrega una persona, una vez | El kit no es dueño de `CLAUDE.md`. Después de que la línea existe, el kit mantiene el contenido al día como cualquier otro artefacto. |
+| Archivo propio + `@import`, no escribir `CLAUDE.md` | Un artefacto `config` copia su `src` tal cual a `a.Dest`. Apuntar `dest` a `CLAUDE.md` pisaría lo que el proyecto ya tenga ahí. |
+| ~~La línea `@.claude/persona.md` la agrega una persona, una vez~~ | **Revertida en §13.** El paso manual se olvidaba y el fallo era silencioso: el archivo instalado, la persona nunca cargada, y `status` en `ok`. Ahora la agrega `ensure_line`. |
 | **Sin frontmatter** | `CheckFrontmatterName` se invoca solo desde `repo_manifest_test.go:59,68`, dentro de un `switch a.Type` con casos `skill`, `agent` y `command`. `config` cae en el default: no se chequea. Un frontmatter decorativo sería ruido que nada valida. |
 | `applies_to` solo en `kit.yaml` | La herramienta lo lee de `manifest.go:30` y nunca del archivo. Que 2 de 9 skills lo repitan en su frontmatter es drift, no convención. |
 
@@ -663,7 +663,8 @@ idéntico byte a byte a `config/persona.md`, registrado en `deal-kit.lock`, y
 
 ### Tag
 
-`kit-v*` únicamente: no hay cambios bajo `tool/`.
+`kit-v*` únicamente: no hay cambios bajo `tool/`. **Superado por §14**, que
+agrega la capacidad `ensure_line` en `tool/` y por lo tanto necesita los dos.
 
 ---
 
@@ -741,6 +742,99 @@ Cada uno se corrió con la corrección sacada a mano. Mensaje sin la corrección
 | `TestTheMarketplaceURLResolvesToTheMarketplaceRepo` | (fija `MarketplaceURL` ↔ `MarketplaceHost` ↔ `MarketplaceRepo`) |
 | `tui.TestAMarketplaceAtAnotherRefIsNamedOnTheScreen` | `the screen never names the registered ref` |
 
+---
+
+
+## 14. `ensure_line`: garantizar una línea en un archivo que el kit no posee
+
+El artefacto `general/persona` instalaba `.claude/persona.md`, pero Claude Code
+no lo carga hasta que el `CLAUDE.md` del proyecto tiene `@.claude/persona.md`.
+Esa línea la agregaba una persona a mano, una vez por repo (§12). **Cuando se
+olvidaba, no había síntoma**: el archivo estaba instalado, la persona nunca
+cargaba, `status` decía `ok`. Un fallo silencioso no es un paso manual, es un
+bug con documentación.
+
+`ensure_line` es la capacidad nueva: garantizar que **una** línea esté presente
+en un archivo que el kit **no** posee, sin reescribir el resto.
+
+```yaml
+- { id: general/persona, type: config, ..., dest: ".claude/persona.md",
+    ensure_line: { file: "CLAUDE.md", line: "@.claude/persona.md" } }
+```
+
+| Situación | Resultado |
+|---|---|
+| el archivo no existe | se crea con la línea |
+| existe y ya tiene la línea | no-op, `status` → `ok` |
+| existe y le falta la línea | se agrega al final, byte por byte intacto lo demás |
+
+### El problema de diseño: qué estado se trackea
+
+El lockfile guarda un `hash` por archivo instalado, y `status` reporta drift
+comparando. **Ese modelo no sirve acá.** `CLAUDE.md` lo edita el equipo todo el
+día por razones que no tienen nada que ver con el kit: hashearlo haría que
+`status` dijera "cambiado" en **cada** corrida, y un status que siempre grita
+entrena a la gente a no leerlo. Es peor que no reportar nada.
+
+Se verificó modelándolo mal a propósito (mutación M5: registrar `CLAUDE.md`
+como `OwnedFile` con hash). Resultado: el primer edit del equipo bloquea el
+sync entero con `1 archivo(s) requieren atención antes de aplicar`.
+
+Entonces el estado trackeado es **presencia, no contenido**:
+
+| Archivo | Se registra en | Lleva hash | `status` pregunta |
+|---|---|---|---|
+| `.claude/persona.md` | `files:` | sí | ¿cambió el contenido? |
+| `CLAUDE.md` | `lines:` | **no** | ¿sigue estando la línea? |
+
+`lockfile.EnsuredLine{Path, Line}` es el registro nuevo. Se guarda igual —
+aunque la respuesta se recalcula del archivo en cada plan — para que
+`deal-kit.lock` siga mostrando qué le hizo el CLI al proyecto: una mutación sin
+registro es una mutación no auditable.
+
+Etiqueta propia en `status`: **`FALTA IMPORT`**, no `DESACTUALIZADO`. Contesta
+la pregunta útil ("¿está el import?") y no la engañosa ("¿cambió el archivo?").
+
+### Dónde vive cada cosa
+
+| Archivo | Qué hace |
+|---|---|
+| `tool/internal/plan/ensureline.go` | nuevo: `ensureLineAction` (decide) y `appendLine` (escribe) |
+| `tool/internal/plan/plan.go` | `Kind` nueva `AppendLine`, campo `Action.Line`, mapa `ensured`, rama en `Apply`, `recordedIDs()` |
+| `tool/internal/plan/summary.go` | `DirSummary.Lines`: sin esto el árbol final sumaba 11 y el pie decía 12 |
+| `tool/internal/lockfile/lockfile.go` | `Installed.Lines []EnsuredLine`, sin hash y con el porqué en el comentario |
+| `tool/internal/kit/kit.go` + `manifest.go` | `ensure_line: {file, line}` en `kit.yaml`, validado |
+| `tool/internal/cli/render.go` | `agregar línea`, `FALTA IMPORT`, `kindW` 12 → 13 |
+| `tool/internal/tui/view.go` | glifo, la línea en la fila, contador propio en `summary()` |
+
+### Decisiones
+
+| Decisión | Razón |
+|---|---|
+| La línea sale de `kit.yaml`, no está hardcodeada | Es dato del artefacto, no de la herramienta. |
+| Una sola línea literal, un solo archivo | No es un motor de templates. Cualquier cosa más rica convierte al kit en segundo autor de un archivo que no posee, que es justo lo que las reglas de propiedad prohíben. Un valor con `\n` se rechaza al parsear. |
+| `AppendLine` **nunca** puede quedar `Blocked` | Todo otro destino bloquea cuando el proyecto es dueño del archivo, porque escribirlo destruye trabajo. Acá que el proyecto sea dueño es el caso normal: se agrega una línea y no se reescribe nada, así que no hay nada que perder ni que rechazar. |
+| Match por línea con `TrimSpace`, no `Contains` | Un import indentado, o con CRLF, ya está: agregar otro sería la herramienta discutiéndole al archivo. Y `@.claude/persona.md.bak` **contiene** la línea sin **ser** la línea. |
+| Se re-chequea la presencia dentro de `appendLine` | `Apply` tiene que converger aunque el archivo cambie entre planear y escribir. Un import duplicado es el único modo de falla plausible de esta feature. |
+| Se preserva el modo del archivo | Es del proyecto; el CLI es un invitado. |
+| El `file` pasa por `paths.Resolve` | Mismo guard de traversal que cualquier otro destino. Hay test con `../outside`. |
+| **Quitar la línea queda fuera de alcance** | El código existente borra archivos de forma uniforme, pero acá no hay archivo que borrar. Si el artefacto se desinstala o queda huérfano, `lock.Remove(id)` se lleva el registro y **la línea queda en `CLAUDE.md`**. Es lo honesto: editar un archivo ajeno para sacarle algo es otra decisión, y bastante más peligrosa que agregarlo. |
+
+### Tests, cada uno mapeado a su comportamiento
+
+Todos verificados al revés, mutando la corrección afuera:
+
+| Mutación | Tests que caen |
+|---|---|
+| M1 `Build` no planea el `ensure_line` | 13 tests en `plan` y `cli` |
+| M2 `appendLine` no separa con `\n` | `TestEnsureLineDoesNotJoinTheProjectsLastLine` (`"no trailing newline@.claude/persona.md"`) |
+| M3 `hasLine` usa `strings.Contains` | `TestEnsureLineDoesNotMatchASubstring` (`kind = "unchanged", want "append-line"`) |
+| M4 `appendLine` pisa en vez de agregar | `TestEnsureLineAppendsWithoutTouchingWhatIsAlreadyThere` + 4 más |
+| **M5 `CLAUDE.md` con hash en `files:`** | `TestEditingTheRestOfTheFileIsNotReportedAsDrift` (`blocked = [...]`), `TestEnsureLineIsRecordedAsAPresenceNotAHash`, `TestASecondInitLeavesClaudeMDAloneAndReportsOK` (`1 archivo(s) requieren atención`) |
+| M6 sin etiqueta `FALTA IMPORT` | `TestStatusReportsAMissingImportAndInitRestoresIt` |
+| M7 `AppendLine` fuera de `Changes()` | `TestDryRunShowsTheImportAndWritesNothing` |
+| M8 sin validación de `ensure_line` | `TestParseManifestRejectsAnIncompleteEnsureLine` (4 subcasos) |
+
 ### Verificación
 
 `gofmt -l .` limpio · `go vet ./...` limpio · `go test ./... -count=1` 12/12 ·
@@ -751,3 +845,32 @@ ref) · el chequeo de hermeticidad sobre `~/.local/bin/engram` sigue dando
 ### Tag
 
 `v*`: los cambios son de `tool/`.
+
+---
+
+### Verificación (§14)
+
+goldens de la TUI regenerados **sin diff** (ningún fixture de la TUI declara
+`ensure_line`; lo cubren dos tests directos en `internal/tui/ensureline_test.go`)
+· hermeticidad `HERMETIC` (`stat` de `~/.local/bin/engram` sin cambios).
+
+Binario real (`/tmp/deal-kit`, `--kit-dir` al working tree) contra proyectos
+scratch en `/tmp/scratch/`, los cuatro casos:
+
+1. Proyecto sin `CLAUDE.md` → `init` lo crea con la línea sola.
+2. `CLAUDE.md` con contenido y **sin salto de línea final** → línea agregada;
+   `head -c <tamaño original>` del resultado hashea idéntico al original, o sea
+   ningún byte previo se movió. `--dry-run` antes: sha256 sin cambios.
+3. `init` de nuevo → `ya está actualizado`, sha256 igual, `status` → `ok`,
+   `grep -c` del import → `1`.
+4. Se borra la línea → `status` dice `general/persona  FALTA IMPORT  CLAUDE.md`
+   y `init` la repone al final, conservando lo que el equipo escribió después.
+   Editar el **resto** del archivo (caso 4a) sigue dando `ok`.
+
+### Tag
+
+`v*` **y** `kit-v*`: hay cambios bajo `tool/` (la capacidad) y en `kit.yaml`
+(el artefacto que la usa). **El `v*` primero**: un binario anterior a este
+cambio ignora `ensure_line` en silencio — el campo no existe en su
+`rawArtifact`, así que instala la persona y nunca agrega el import, que es
+exactamente el bug que esto arregla.

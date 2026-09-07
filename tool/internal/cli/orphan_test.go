@@ -127,7 +127,7 @@ func TestUpdatePlansTheDeletionOfAnOrphanedArtifact(t *testing.T) {
 	if err := Update(e); err != nil {
 		t.Fatalf("Update() = %v, want no error", err)
 	}
-	if !strings.Contains(out.String(), "borrar       "+orphanPath) {
+	if !strings.Contains(out.String(), "borrar        "+orphanPath) {
 		t.Errorf("the orphan's file is not planned for deletion:\n%s", out)
 	}
 }

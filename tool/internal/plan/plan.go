@@ -22,11 +22,12 @@ import (
 type Kind string
 
 const (
-	Create    Kind = "create"
-	Overwrite Kind = "overwrite"
-	Unchanged Kind = "unchanged"
-	Delete    Kind = "delete"
-	Blocked   Kind = "blocked" // a local edit or a foreign file; needs a human
+	Create     Kind = "create"
+	Overwrite  Kind = "overwrite"
+	Unchanged  Kind = "unchanged"
+	Delete     Kind = "delete"
+	Blocked    Kind = "blocked"     // a local edit or a foreign file; needs a human
+	AppendLine Kind = "append-line" // add one line to a file the project owns
 )
 
 // Reasons for removing a file the lockfile records but nothing produces any
@@ -43,6 +44,7 @@ type Action struct {
 	ArtifactID string
 	Path       string // project-relative, slash-separated
 	Reason     string
+	Line       string // AppendLine only: the exact line to guarantee
 
 	content []byte // source content for Create and Overwrite
 	hash    string
@@ -54,6 +56,12 @@ type Plan struct {
 	Deps    map[string]string // npm dependency -> semver range
 
 	owned map[string][]lockfile.OwnedFile // artifact ID -> files after apply
+
+	// ensured is the parallel record for `ensure_line`: artifact ID -> the
+	// lines it guarantees inside files the project owns. Kept apart from
+	// owned because the two carry different authority — see
+	// lockfile.EnsuredLine for why one has a hash and the other cannot.
+	ensured map[string][]lockfile.EnsuredLine
 }
 
 // Input is everything Build needs to compute a plan.
@@ -79,8 +87,9 @@ type Input struct {
 // Build computes the plan without touching the project.
 func Build(in Input) (*Plan, error) {
 	p := &Plan{
-		Deps:  kit.NPMDeps(in.Artifacts),
-		owned: map[string][]lockfile.OwnedFile{},
+		Deps:    kit.NPMDeps(in.Artifacts),
+		owned:   map[string][]lockfile.OwnedFile{},
+		ensured: map[string][]lockfile.EnsuredLine{},
 	}
 
 	for _, a := range in.Artifacts {
@@ -100,6 +109,16 @@ func Build(in Input) (*Plan, error) {
 			if act.Kind != Blocked {
 				p.owned[a.ID] = append(p.owned[a.ID], lockfile.OwnedFile{Path: fp.dest, Hash: act.hash})
 			}
+		}
+
+		// An artifact may also have to guarantee a line inside a file the
+		// project owns; that never produces or removes a file, so it is
+		// planned beside the copies rather than through filePairs.
+		if act, rec, ok, err := ensureLineAction(in, a); err != nil {
+			return nil, fmt.Errorf("artefacto %q: %w", a.ID, err)
+		} else if ok {
+			p.Actions = append(p.Actions, act)
+			p.ensured[a.ID] = append(p.ensured[a.ID], rec)
 		}
 
 		// A file the artifact used to own but no longer produces is removed —
@@ -283,7 +302,7 @@ func (p *Plan) Changes() []Action {
 	var out []Action
 	for _, a := range p.Actions {
 		switch a.Kind {
-		case Create, Overwrite, Delete:
+		case Create, Overwrite, Delete, AppendLine:
 			out = append(out, a)
 		}
 	}
@@ -312,17 +331,42 @@ func (p *Plan) Apply(projectDir string, lock *lockfile.File) error {
 				return err
 			}
 			pruneEmptyDirs(projectDir, filepath.Dir(abs))
+		case AppendLine:
+			if err := appendLine(abs, a.Line); err != nil {
+				return err
+			}
 		}
 	}
 
-	for id, files := range p.owned {
-		if len(files) == 0 {
+	for _, id := range p.recordedIDs() {
+		files, lines := p.owned[id], p.ensured[id]
+		// An artifact that ends up owning nothing at all — no file, no line —
+		// is gone from the project, so its record goes with it.
+		if len(files) == 0 && len(lines) == 0 {
 			lock.Remove(id)
 			continue
 		}
-		lock.Set(lockfile.Installed{ID: id, Files: files})
+		lock.Set(lockfile.Installed{ID: id, Files: files, Lines: lines})
 	}
 	return nil
+}
+
+// recordedIDs is every artifact the plan has something to record for, sorted
+// so a repeated run writes the lockfile identically.
+func (p *Plan) recordedIDs() []string {
+	seen := map[string]bool{}
+	var out []string
+	for id := range p.owned {
+		seen[id] = true
+		out = append(out, id)
+	}
+	for id := range p.ensured {
+		if !seen[id] {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // pruneEmptyDirs removes directories left empty by a delete, stopping at the

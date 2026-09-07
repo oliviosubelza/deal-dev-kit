@@ -249,7 +249,6 @@ func TestInstallEngramPrintsTheCommandsAndReportsSuccess(t *testing.T) {
 		"2 de 2 comando(s) ejecutados",
 		"instalado y habilitado",
 		"reiniciar Claude Code",
-		"engram setup claude-code",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("stdout does not mention %q:\n%s", want, got)
@@ -257,6 +256,58 @@ func TestInstallEngramPrintsTheCommandsAndReportsSuccess(t *testing.T) {
 	}
 	if strings.Contains(errOut.String(), "falló") {
 		t.Errorf("a successful install wrote a failure to stderr:\n%s", errOut.String())
+	}
+}
+
+func TestTheEngramOutputNeverTellsTheUserToRunEngramSetup(t *testing.T) {
+	// Same false claim the screen carried: the plugin ships its own .mcp.json
+	// and `plugin install` registers the MCP server, so there is no pending
+	// setup step. Kept as its own test because the assertion it replaced was a
+	// positive one — a contains-check that the sentence was printed.
+	plan := engram.PlanFor(engram.Status{State: engram.StateMarketplaceMissing, EngramPath: "/bin/engram"})
+	ready := engram.Status{State: engram.StateReady, EngramPath: "/bin/engram", Version: "1.20.0"}
+
+	var out, errOut bytes.Buffer
+	renderEngram(&out, &errOut, plan, engram.Outcome{Done: plan.Steps(), Status: ready})
+	if got := out.String() + errOut.String(); strings.Contains(got, "setup claude-code") {
+		t.Errorf("the output still says the MCP server needs a separate setup:\n%s", got)
+	}
+}
+
+func TestThePathCommandInTheOutputMatchesTheHostPlatform(t *testing.T) {
+	// The screen and this output must say the same thing on the same machine.
+	// They already diverged once over the Windows hooks warning, so the
+	// command comes from the one shared helper and is checked on both
+	// platforms here too.
+	prev := hostGOOS
+	t.Cleanup(func() { hostGOOS = prev })
+
+	// No EngramPath, so the plan carries the download whose destination is the
+	// directory the command names.
+	plan := engram.PlanFor(engram.Status{State: engram.StateReady, ClaudePath: "/fake/bin/claude"})
+	d, ok := plan.Binary()
+	if !ok {
+		t.Fatal("the plan has no download, so there is no destination to put on PATH")
+	}
+
+	// The commands come from tui.PathHint so this output and the screen cannot
+	// disagree — that divergence is a bug this repository has already shipped.
+	for _, goos := range []string{"windows", "linux", "darwin"} {
+		hostGOOS = goos
+		var out, errOut bytes.Buffer
+		renderEngram(&out, &errOut, plan, engram.Outcome{Done: plan.Steps(),
+			Status: engram.Status{State: engram.StateReady, Version: "1.20.0"}})
+		cmds, _ := tui.PathHint(goos, d.Dir)
+		for _, want := range cmds {
+			if !strings.Contains(errOut.String(), want) {
+				t.Errorf("%s: the output never offers %q:\n%s", goos, want, errOut.String())
+			}
+			// setx merges the system path into the user's and truncates at
+			// 1024 characters; it must never be what deal-kit hands over.
+			if strings.HasPrefix(want, "setx ") {
+				t.Errorf("%s: the output offers setx: %q", goos, want)
+			}
+		}
 	}
 }
 

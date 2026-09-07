@@ -62,7 +62,9 @@ recommendation on Windows, where unsigned prebuilt binaries trip antivirus
 heuristics), otherwise the pinned release asset, verified against its published
 checksum. It lands in `~/.local/bin` (`%LOCALAPPDATA%\Programs\engram` on
 Windows). **deal-kit never edits PATH**: when that directory is not on it, the
-run says which directory to add and that Claude Code needs a restart.
+run prints the exact command for the host platform (`setx` on Windows, an
+`export` line on POSIX) and says Claude Code needs a restart. Running it stays
+the user's call.
 
 The build installed is the one for the environment deal-kit is running in — the
 same one that resolved `claude`. A Linux `engram` is invisible to a

@@ -8,6 +8,8 @@
 ║                                                                      ║
 ║   Memoria persistente para el agente de IA: guarda decisiones,       ║
 ║   bugs y convenciones, y las recupera en la sesión siguiente.        ║
+║   Instala los hooks de sesión y la skill "memory" en la              ║
+║   configuración global de Claude Code.                               ║
 ║                                                                      ║
 ║     repo                Gentleman-Programming/engram                 ║
 ║     marketplace         v1.20.0  (fijado)                            ║
@@ -20,21 +22,12 @@
 ║                                                                      ║
 ║   El marketplace engram todavía no está registrado.                  ║
 ║                                                                      ║
-║   Qué se instala                                                     ║
-║                                                                      ║
-║   Los hooks de sesión, los scripts que los ejecutan y la skill       ║
-║   "memory", dentro de la configuración global de Claude Code.        ║
-║                                                                      ║
 ║   Comandos                                                           ║
 ║                                                                      ║
 ║     claude plugin marketplace add                                    ║
 ║       https://github.com/Gentleman-Programming/engram.git#v1.20.0    ║
 ║       --scope user                                                   ║
 ║     claude plugin install engram@engram --scope user --yes           ║
-║                                                                      ║
-║   Después queda pendiente `engram setup claude-code`, que registra   ║
-║   el servidor MCP. deal-kit no lo ejecuta: cambia permisos y otros   ║
-║   archivos globales.                                                 ║
 ║                                                                      ║
 ║   y: instalar  •  n: cancelar  •  esc: volver  •  q: salir           ║
 ║                                                                      ║

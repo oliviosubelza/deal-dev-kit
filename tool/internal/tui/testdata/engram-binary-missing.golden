@@ -8,6 +8,8 @@
 ║                                                                      ║
 ║   Memoria persistente para el agente de IA: guarda decisiones,       ║
 ║   bugs y convenciones, y las recupera en la sesión siguiente.        ║
+║   Instala los hooks de sesión y la skill "memory" en la              ║
+║   configuración global de Claude Code.                               ║
 ║                                                                      ║
 ║     repo                Gentleman-Programming/engram                 ║
 ║     marketplace         v1.20.0  (fijado)                            ║
@@ -20,26 +22,20 @@
 ║                                                                      ║
 ║   ✓ El marketplace es el correcto y el plugin está habilitado.       ║
 ║                                                                      ║
-║   Qué se instala                                                     ║
-║                                                                      ║
-║   Los hooks de sesión, los scripts que los ejecutan y la skill       ║
-║   "memory", dentro de la configuración global de Claude Code.        ║
-║                                                                      ║
 ║   Comandos                                                           ║
 ║                                                                      ║
 ║     descargar engram_1.20.0_linux_amd64.tar.gz →                     ║
 ║       /home/deal/.local/bin/engram                                   ║
 ║                                                                      ║
 ║     destino             /home/deal/.local/bin                        ║
-║   Ese directorio no está en el PATH: agregarlo a mano y reiniciar    ║
-║   Claude Code, o el servidor MCP no va a encontrar engram.           ║
 ║                                                                      ║
-║   El binario engram no está en el PATH. Sin él fallan los hooks y    ║
-║   el servidor MCP. El plan lo instala primero, antes de tocar el     ║
-║   plugin.                                                            ║
-║   Después queda pendiente `engram setup claude-code`, que registra   ║
-║   el servidor MCP. deal-kit no lo ejecuta: cambia permisos y otros   ║
-║   archivos globales.                                                 ║
+║   Falta: engram no está en el PATH — el servidor MCP no va a         ║
+║   arrancar.                                                          ║
+║                                                                      ║
+║     export PATH="$PATH:/home/deal/.local/bin"                        ║
+║                                                                      ║
+║   Agregar esa línea al arranque de la shell (~/.zshrc, ~/.bashrc)    ║
+║   y reiniciar Claude Code.                                           ║
 ║                                                                      ║
 ║   y: instalar  •  n: cancelar  •  esc: volver  •  q: salir           ║
 ║                                                                      ║

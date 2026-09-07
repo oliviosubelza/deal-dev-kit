@@ -13,9 +13,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -27,8 +29,9 @@ import (
 const (
 	// ClaudeBin is the Claude Code CLI, which owns the plugin installation.
 	ClaudeBin = "claude"
-	// EngramBin is the Engram binary itself. The plugin's hooks call it, so a
-	// working install needs it on PATH, but deal-kit does not install it.
+	// EngramBin is the Engram binary itself. The plugin's MCP server and every
+	// one of its hooks invoke it, so deal-kit installs it before the plugin;
+	// how it is acquired lives in binary.go.
 	EngramBin = "engram"
 
 	// MarketplaceName is how the marketplace registers itself.
@@ -185,6 +188,7 @@ type Status struct {
 	State      State
 	ClaudePath string // resolved path of the claude executable
 	EngramPath string // resolved path of the engram binary, empty when absent
+	GoPath     string // resolved path of the go toolchain, empty when absent
 	FoundRepo  string // the repo of the marketplace named engram, when one exists
 	Version    string // the installed plugin version, when installed
 	Err        error  // why State is StateUnknown
@@ -194,6 +198,11 @@ type Status struct {
 // is on PATH. The plugin installs and enables without it, but every hook then
 // fails at runtime, so it is reported separately rather than folded into State.
 func (s Status) EngramBinaryFound() bool { return s.EngramPath != "" }
+
+// GoFound reports whether the Go toolchain is on PATH. It decides which of the
+// two acquisition paths the plan uses, so it is resolved once here rather than
+// looked up again when the plan is built.
+func (s Status) GoFound() bool { return s.GoPath != "" }
 
 type marketplace struct {
 	Name            string `json:"name"`
@@ -225,6 +234,9 @@ func Detect(ctx context.Context, r Runner, look Lookup) Status {
 	st.ClaudePath = path
 	if p, err := look(EngramBin); err == nil {
 		st.EngramPath = p
+	}
+	if p, err := look(GoBin); err == nil {
+		st.GoPath = p
 	}
 
 	markets, err := listMarketplaces(ctx, r, path)
@@ -359,22 +371,49 @@ const (
 	StepMarketplaceAdd StepKind = iota
 	StepInstall
 	StepEnable
+	// StepGoInstall builds the engram binary with the Go toolchain.
+	StepGoInstall
+	// StepBinaryDownload fetches the pinned release asset. It is the only
+	// step that is not an external command, so Apply dispatches on Kind.
+	StepBinaryDownload
 )
 
-// Step is one command to run.
+// Step is one mutation. Most steps are external commands, described by Args
+// with the program first. StepBinaryDownload is not a command: it carries Get
+// instead, and Note is what the confirmation screen shows for it, so Line()
+// stays honest for every kind rather than rendering an empty command line.
 type Step struct {
 	Kind StepKind
-	Args []string // program first
+	Args []string  // program first; empty for a step that is not a command
+	Note string    // display line for a step that is not a command
+	Get  *Download // the asset to fetch, for StepBinaryDownload only
 }
 
-// Line is the command as a user would type it.
-func (s Step) Line() string { return strings.Join(s.Args, " ") }
+// Line is the step as a user would read it: the command for a command, and the
+// plain-language description for the download.
+//
+// It dispatches on Kind, the same tag runStep switches on. Deciding "is this a
+// command?" from len(Args) instead would be a second, independent dispatch over
+// one tagged union: a StepKind added later would execute down runStep's default
+// branch while rendering an empty line into the confirmation screen.
+func (s Step) Line() string {
+	switch s.Kind {
+	case StepBinaryDownload:
+		return s.Note
+	default:
+		return strings.Join(s.Args, " ")
+	}
+}
 
 // Plan is the immutable sequence of mutations that would bring this machine to
 // StateReady. The steps are unexported and handed out as a copy so nothing
 // downstream — a screen, a renderer — can append to what will be executed.
 type Plan struct {
 	steps []Step
+	// blocked is why the plan is empty when emptiness is a refusal rather
+	// than "nothing to do" — an unsupported platform with no Go toolchain,
+	// for instance. Callers show it instead of "no hay nada que hacer".
+	blocked string
 }
 
 // Steps returns a deep copy of the planned commands. Copying the slice alone
@@ -385,13 +424,46 @@ func (p Plan) Steps() []Step {
 	for i, s := range p.steps {
 		args := make([]string, len(s.Args))
 		copy(args, s.Args)
-		out[i] = Step{Kind: s.Kind, Args: args}
+		out[i] = Step{Kind: s.Kind, Args: args, Note: s.Note}
+		// The download descriptor is copied too, for the same reason the
+		// arguments are: handing out the pointer would let a caller retarget
+		// where the binary lands.
+		if s.Get != nil {
+			get := *s.Get
+			out[i].Get = &get
+		}
 	}
 	return out
 }
 
 // Empty reports whether there is nothing to do.
 func (p Plan) Empty() bool { return len(p.steps) == 0 }
+
+// Blocked is why an empty plan is a refusal rather than a machine that is
+// already fine, or "" when it is not a refusal.
+func (p Plan) Blocked() string { return p.blocked }
+
+// Binary returns the download the plan would perform, if it has one. It is how
+// a screen names the destination directory before the user consents.
+func (p Plan) Binary() (Download, bool) {
+	for _, s := range p.steps {
+		if s.Kind == StepBinaryDownload && s.Get != nil {
+			return *s.Get, true
+		}
+	}
+	return Download{}, false
+}
+
+// InstallsBinary reports whether the plan acquires the engram binary, by
+// either route.
+func (p Plan) InstallsBinary() bool {
+	for _, s := range p.steps {
+		if s.Kind == StepGoInstall || s.Kind == StepBinaryDownload {
+			return true
+		}
+	}
+	return false
+}
 
 // NeedsDownload reports whether the plan contacts the network. Enabling a
 // plugin that is already on disk does not, so --offline still allows it. It
@@ -416,29 +488,56 @@ func (p Plan) Lines() []string {
 }
 
 // PlanFor builds the plan for a state. Every state that must not be mutated —
-// claude missing, a conflicting marketplace, an unreadable query, and already
-// being ready — yields an empty plan, so "do nothing" is decided once here
-// rather than at each call site.
-func PlanFor(st Status) Plan {
+// claude missing, a conflicting marketplace and an unreadable query — yields an
+// empty plan, so "do nothing" is decided once here rather than at each call
+// site.
+//
+// The binary step goes first when the binary is absent. It is the engine: the
+// plugin's MCP server and every one of its hooks invoke `engram`, so installing
+// the plugin ahead of it produces a Claude Code that starts and then fails at
+// every hook. That is also why a machine whose plugin is already StateReady
+// still gets a plan when the binary is missing.
+func PlanFor(st Status) Plan { return planFor(runtime.GOOS, runtime.GOARCH, st) }
+
+// planFor takes the platform as arguments so a test can ask what an
+// unsupported one produces without pretending to be it.
+func planFor(goos, goarch string, st Status) Plan {
+	var steps []Step
 	switch st.State {
+	// `plugin install` leaves the plugin enabled, so no plan that installs
+	// also enables: `enable` then fails with "already enabled at user scope"
+	// and a working install reports failure. Found by running the installer
+	// against an empty HOME; the simulated `claude` in the tests accepts any
+	// `enable`, which is why the suite never saw it.
 	case StateMarketplaceMissing:
-		return Plan{steps: []Step{
+		steps = []Step{
 			{Kind: StepMarketplaceAdd, Args: MarketplaceAddArgs()},
 			{Kind: StepInstall, Args: PluginInstallArgs()},
-			{Kind: StepEnable, Args: PluginEnableArgs()},
-		}}
+		}
 	case StatePluginMissing:
-		return Plan{steps: []Step{
+		steps = []Step{
 			{Kind: StepInstall, Args: PluginInstallArgs()},
-			{Kind: StepEnable, Args: PluginEnableArgs()},
-		}}
+		}
+	// The only state where enabling is its own job: it is already on disk.
 	case StatePluginDisabled:
-		return Plan{steps: []Step{
-			{Kind: StepEnable, Args: PluginEnableArgs()},
-		}}
+		steps = []Step{{Kind: StepEnable, Args: PluginEnableArgs()}}
+	case StateReady:
+		// Nothing to do to the plugin; the binary check below may still
+		// have something to do.
 	default:
 		return Plan{}
 	}
+	if st.EngramBinaryFound() {
+		return Plan{steps: steps}
+	}
+	step, blocked := binaryStep(goos, goarch, st)
+	if blocked != "" {
+		// Refused rather than reduced to the plugin steps. A plugin whose
+		// every hook fails is the bug this step exists to fix, so deal-kit
+		// says what is missing instead of installing half of it.
+		return Plan{blocked: blocked}
+	}
+	return Plan{steps: append([]Step{step}, steps...)}
 }
 
 // Outcome is what Apply did.
@@ -460,7 +559,12 @@ func (o Outcome) Applied() bool { return o.Err == nil }
 // what actually landed is not known. Reporting that as plain success is the
 // same guess this package refuses to make everywhere else — deciding "not
 // installed" from unreadable output.
-func (o Outcome) Verified() bool { return o.Err == nil && o.Status.State == StateReady }
+// The binary counts too: the plugin declares an MCP server and hooks that
+// shell out to `engram`, so a StateReady plugin with no binary on PATH is not
+// a working install and must not be reported as one.
+func (o Outcome) Verified() bool {
+	return o.Err == nil && o.Status.State == StateReady && o.Status.EngramBinaryFound()
+}
 
 // Apply runs the plan, re-querying the state after each mutation so a partial
 // failure reports what the machine actually looks like now rather than what
@@ -488,14 +592,19 @@ func Apply(ctx context.Context, r Runner, look Lookup, p Plan, live io.Writer) O
 		o.Status = Status{State: StateClaudeMissing}
 		return o
 	}
+	// The step that ran last and what it cost, so an exhausted budget can name
+	// who spent it instead of blaming whichever step happened to be next.
+	var prev *Step
+	var prevTook time.Duration
 	for _, step := range p.Steps() {
 		if err := ctx.Err(); err != nil {
 			s := step
-			o.Failed, o.Err = &s, err
+			o.Failed, o.Err = &s, budgetErr(err, step, prev, prevTook)
 			o.Status = detectFresh(ctx, r, look)
 			return o
 		}
-		if err := r.RunStream(ctx, live, claudePath, step.Args[1:]...); err != nil {
+		started := time.Now()
+		if err := runStep(ctx, r, look, claudePath, step, live); err != nil {
 			s := step
 			o.Failed, o.Err = &s, err
 			// Re-query even on failure: `marketplace add` can succeed and
@@ -505,6 +614,8 @@ func Apply(ctx context.Context, r Runner, look Lookup, p Plan, live io.Writer) O
 			return o
 		}
 		o.Done = append(o.Done, step)
+		s := step
+		prev, prevTook = &s, time.Since(started)
 		// Re-query after every mutation: the next step's precondition is the
 		// state this one just produced, and reporting the plan's intention
 		// instead would hide a step that silently did nothing.
@@ -516,6 +627,45 @@ func Apply(ctx context.Context, r Runner, look Lookup, p Plan, live io.Writer) O
 		o.Status = detectFresh(ctx, r, look)
 	}
 	return o
+}
+
+// budgetErr names the step that consumed the shared budget.
+//
+// InstallTimeout covers the whole plan, and the binary download runs first. A
+// slow download therefore starves `marketplace add`, which fails on ctx.Err()
+// for a reason that is not its own and is indistinguishable from its own hang.
+// Naming the consumer was chosen over splitting the budget per step: it is the
+// smaller change, it makes the failure honest, and it invents no per-step
+// timeouts that nobody has measured against a real slow link. The cause is
+// wrapped, so errors.Is against context.DeadlineExceeded still answers.
+func budgetErr(err error, step Step, prev *Step, took time.Duration) error {
+	if prev == nil {
+		return err
+	}
+	return fmt.Errorf("no quedó presupuesto (%s en total) para `%s`: lo consumió `%s`, que tardó %s: %w",
+		InstallTimeout, step.Line(), prev.Line(), took.Round(time.Second), err)
+}
+
+// runStep performs one step. Everything but the download is an external
+// command, run as the path the lookup resolved rather than the bare name — for
+// the same reason Apply resolves `claude` once: resolving one thing and
+// executing another is how a "hermetic" test ends up running the real program.
+func runStep(ctx context.Context, r Runner, look Lookup, claudePath string, step Step, live io.Writer) error {
+	switch step.Kind {
+	case StepBinaryDownload:
+		if step.Get == nil {
+			return errors.New("paso de descarga sin destino")
+		}
+		return fetchBinary(ctx, *step.Get, live)
+	case StepGoInstall:
+		goPath, err := look(GoBin)
+		if err != nil {
+			return fmt.Errorf("no se encontró %s en el PATH: %w", GoBin, err)
+		}
+		return r.RunStream(ctx, live, goPath, step.Args[1:]...)
+	default:
+		return r.RunStream(ctx, live, claudePath, step.Args[1:]...)
+	}
 }
 
 // detectFresh re-queries with a context detached from the one Apply ran on:

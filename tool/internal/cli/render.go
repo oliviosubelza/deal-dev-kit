@@ -263,7 +263,13 @@ func renderEngram(w, errW io.Writer, p engram.Plan, o engram.Outcome) {
 
 	if !o.Status.EngramBinaryFound() {
 		fmt.Fprintf(errW, "\n  advertencia: el binario engram no está en el PATH.\n"+
-			"    El plugin queda instalado, pero sus hooks fallan hasta que esté.\n")
+			"    El plugin queda instalado, pero sus hooks y su servidor MCP fallan hasta que esté.\n")
+		// deal-kit writes the binary but never edits PATH: that is the same
+		// global mutation it refuses everywhere else. Naming the directory
+		// and the restart is the whole of what it can honestly do.
+		if d, ok := p.Binary(); ok && !d.OnPath {
+			fmt.Fprintf(errW, "    Quedó en %s: agregar ese directorio al PATH y reiniciar Claude Code.\n", d.Dir)
+		}
 	}
 	if runtime.GOOS == "windows" {
 		fmt.Fprintf(errW, "\n  advertencia: en Windows los hooks necesitan Git Bash o WSL.\n"+

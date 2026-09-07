@@ -203,7 +203,7 @@ func installEngram(e Env, p engram.Plan) error {
 	// Enabling a plugin already on disk downloads nothing, so it stays allowed
 	// — the same rule the screen encodes.
 	if e.Offline && p.NeedsDownload() {
-		return fmt.Errorf("--offline: instalar el plugin Engram requiere descargar el marketplace")
+		return fmt.Errorf("--offline: instalar Engram requiere descargar el marketplace o el binario")
 	}
 	fmt.Fprintf(e.Stdout, "\ninstalando el plugin Engram en Claude Code (alcance %s)\n\n", engram.Scope)
 	for _, line := range p.Lines() {
@@ -226,6 +226,13 @@ func installEngram(e Env, p engram.Plan) error {
 	// the user it is done. Reported as a failure of verification, not of the
 	// install, and never silently.
 	if !out.Verified() {
+		// Two different unverified endings, and telling them apart matters:
+		// one is "we could not read the machine", the other is "we read it
+		// and the engine is not there". Collapsing them would report a
+		// missing binary as an unreadable state.
+		if out.Status.State == engram.StateReady && !out.Status.EngramBinaryFound() {
+			return fmt.Errorf("el plugin quedó instalado, pero el binario engram no está en el PATH: sus hooks y su servidor MCP no van a funcionar")
+		}
 		return fmt.Errorf("los comandos se ejecutaron pero no se pudo confirmar el estado del plugin Engram: %s",
 			engramStateLabel(out.Status))
 	}

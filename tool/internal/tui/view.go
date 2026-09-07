@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -9,6 +10,12 @@ import (
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/engram"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
 )
+
+// hostGOOS is the platform the warnings on the Engram screen are written for.
+// It is runtime.GOOS behind a variable for one reason: a golden snapshot must
+// not differ between a Linux and a Windows developer, so the golden tests pin
+// it. Nothing in production ever assigns it.
+var hostGOOS = runtime.GOOS
 
 // panelPad is the horizontal padding inside the border, both sides.
 const panelPad = 6
@@ -566,6 +573,24 @@ func (m Model) engramLines() []string {
 			out = append(out, m.commandLines(line)...)
 		}
 		out = append(out, "")
+		// The destination is named before the user consents: this writes an
+		// executable outside the project, and PATH is the one thing deal-kit
+		// will not edit on their behalf.
+		if d, ok := m.cfg.EngramPlan.Binary(); ok {
+			out = append(out, m.field("destino", d.Dir, colText))
+			if !d.OnPath {
+				out = append(out, m.prose("Ese directorio no está en el PATH: agregarlo a mano y "+
+					"reiniciar Claude Code, o el servidor MCP no va a encontrar engram.")...)
+			}
+			// Said before the user presses y: the install renames over
+			// whatever is at that exact path, and when the directory is not
+			// on PATH nothing else in this screen would have mentioned it.
+			if d.Replaces {
+				out = append(out, m.prose("Ya hay un archivo en "+d.Target()+
+					": la instalación lo reemplaza y no guarda una copia.")...)
+			}
+			out = append(out, "")
+		}
 	}
 
 	out = append(out, m.warnings(st)...)
@@ -581,12 +606,20 @@ func (m Model) engramLines() []string {
 func (m Model) warnings(st engram.Status) []string {
 	var out []string
 	// The hooks are shell scripts. cmd.exe cannot run them, so on Windows the
-	// plugin installs and then silently never fires.
-	out = append(out, m.prose(
-		"En Windows los hooks necesitan Git Bash o WSL: sin uno de los dos se instalan pero nunca se ejecutan.")...)
-	if !st.EngramBinaryFound() && st.State != engram.StateClaudeMissing {
+	// plugin installs and then silently never fires. Shown on Windows only:
+	// internal/cli already gates the same sentence that way, and a warning
+	// about another operating system is noise that trains the reader to skip
+	// the ones that do apply.
+	if hostGOOS == "windows" {
 		out = append(out, m.prose(
-			"El binario engram no está en el PATH. El plugin se instala igual, pero los hooks fallan hasta que esté.")...)
+			"En Windows los hooks necesitan Git Bash o WSL: sin uno de los dos se instalan pero nunca se ejecutan.")...)
+	}
+	if !st.EngramBinaryFound() && st.State != engram.StateClaudeMissing {
+		msg := "El binario engram no está en el PATH. Sin él fallan los hooks y el servidor MCP."
+		if m.cfg.EngramPlan.InstallsBinary() {
+			msg += " El plan lo instala primero, antes de tocar el plugin."
+		}
+		out = append(out, m.prose(msg)...)
 	}
 	out = append(out, m.prose(
 		"Después queda pendiente `engram setup claude-code`, que registra el servidor MCP. deal-kit no lo ejecuta: cambia permisos y otros archivos globales.")...)

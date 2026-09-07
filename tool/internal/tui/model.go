@@ -652,10 +652,15 @@ func (m Model) engramBlocked() string {
 		return "hay otro marketplace llamado engram; deal-kit no lo toca"
 	case m.cfg.Engram.State == engram.StateUnknown:
 		return "no se pudo determinar el estado del plugin"
+	case m.cfg.EngramPlan.Blocked() != "":
+		// An empty plan that is a refusal, not a machine that is already
+		// fine: say which, or the screen reports "nothing to do" for a
+		// platform deal-kit cannot serve.
+		return m.cfg.EngramPlan.Blocked()
 	case m.cfg.EngramPlan.Empty():
 		return "no hay nada que hacer"
 	case m.cfg.Offline && m.cfg.EngramPlan.NeedsDownload():
-		return "--offline: instalar requiere descargar el marketplace"
+		return "--offline: instalar Engram requiere descargar"
 	}
 	return ""
 }
@@ -672,6 +677,12 @@ func engramNote(st engram.Status) string {
 	case engram.StatePluginDisabled:
 		return "instalado pero deshabilitado"
 	case engram.StateReady:
+		if !st.EngramBinaryFound() {
+			// The plugin is in place and every hook still fails. Saying
+			// "installed and enabled" here is the exact lie this feature
+			// exists to stop telling.
+			return "habilitado, pero falta el binario engram"
+		}
 		if st.Version != "" {
 			return "instalado y habilitado · " + st.Version
 		}

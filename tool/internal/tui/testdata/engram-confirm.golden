@@ -31,10 +31,7 @@
 ║       https://github.com/Gentleman-Programming/engram.git#v1.20.0    ║
 ║       --scope user                                                   ║
 ║     claude plugin install engram@engram --scope user --yes           ║
-║     claude plugin enable engram@engram --scope user                  ║
 ║                                                                      ║
-║   En Windows los hooks necesitan Git Bash o WSL: sin uno de los      ║
-║   dos se instalan pero nunca se ejecutan.                            ║
 ║   Después queda pendiente `engram setup claude-code`, que registra   ║
 ║   el servidor MCP. deal-kit no lo ejecuta: cambia permisos y otros   ║
 ║   archivos globales.                                                 ║

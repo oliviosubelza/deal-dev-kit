@@ -535,3 +535,91 @@ goldens regenerados sin diff (`menu`, `engram-confirm`, `engram-ready`, `engram-
 **No se corrió un install real**: esta máquina ya tiene el marketplace agregado y el
 plugin instalado y habilitado, así que un run de verdad no ejercitaría el camino
 interesante y tocaría configuración global. Se llegó hasta `--dry-run`.
+
+---
+
+## 11. Instalación del binario `engram` (`feat/kit-engram-claude-code`)
+
+La TUI instalaba el **plugin** y nunca el **binario**. El plugin trae
+`.mcp.json` con `{"engram": {"command": "engram", ...}}` y todos sus hooks
+invocan `engram`, así que sin el binario el MCP no arranca y cada hook falla.
+`Status.EngramBinaryFound()` ya lo reportaba y nadie actuaba: una máquina con el
+plugin en `StateReady` y sin binario devolvía `Plan{}`.
+
+| Archivo | Qué hace |
+|---|---|
+| `tool/internal/engram/binary.go` | `go install`, asset de release, checksum, extracción, escritura atómica |
+| `tool/internal/engram/binary_test.go` | release falsa con `httptest`, `HOME` temporal |
+| `tool/internal/{engram,cli,tui}/main_test.go` | default-deny de red y de `HOME` en los tests |
+
+### Decisiones
+
+| Decisión | Razón |
+|---|---|
+| El binario va **primero** en el plan | Es el motor. Instalar el plugin antes deja una ventana con hooks que no pueden correr. Por eso `StateReady` sin binario ahora sí produce plan. |
+| Se instala el build de `runtime.GOOS`/`GOARCH` | Es el mismo entorno donde se resolvió `claude`. Un engram de Linux no le sirve a un Claude Code nativo de Windows. |
+| `go install` antes que el asset | Es la recomendación de upstream para Windows: Defender y ESET marcan sus binarios prebuilt sin firmar como falso positivo. Además reusa `Runner`/`RunStream` sin tocar nada. |
+| Se reusa `MarketplaceTag` para el binario | Plugin y binario no pueden derivar. Los assets llevan el tag sin la `v`. |
+| Solo `amd64` y `arm64` | Es lo único que publica el release. Otro `GOARCH` da plan vacío con motivo, nunca una URL adivinada. |
+| Checksum obligatorio | Un asset que no coincide, o que no está en el manifiesto, no se instala. |
+| Temp + `os.Rename` | Una descarga interrumpida no deja un ejecutable truncado en el PATH. |
+| **deal-kit no toca el PATH** | Misma clase de mutación global que ya se rechaza con el marketplace en conflicto. Dice qué directorio agregar y que hay que reiniciar Claude Code. |
+| `Verified()` exige el binario | Un `StateReady` sin binario no es una instalación que funcione. |
+| Presupuesto: se nombra al que lo consumió, no se reparte | Un budget por paso mal elegido convierte un install lento pero sano en una falla. |
+
+### Defecto encontrado corriendo el instalador de verdad
+
+`claude plugin install` **ya habilita** el plugin. Planear `plugin enable`
+después hacía que toda instalación desde cero terminara en
+`Plugin "engram@engram" is already enabled at user scope` y saliera distinto de
+cero, sobre un install que había funcionado.
+
+`planFor` ya no planea `StepEnable` en `StateMarketplaceMissing` ni en
+`StatePluginMissing`. `StatePluginDisabled` es el único estado donde habilitar
+es trabajo propio.
+
+La suite nunca lo agarró porque el `claude` simulado era infiel: su `install`
+dejaba el plugin deshabilitado y su `enable` aceptaba cualquier cosa. Los dos
+fakes ahora instalan-y-habilitan y rechazan un `enable` redundante con el
+mensaje real y exit distinto de cero. `TestNoPlanBothInstallsAndEnables` fija la
+regla. **Lección: un fake que acepta una secuencia imposible no es una
+simplificación, es un punto ciego.**
+
+### Trampas nuevas
+
+- **La suite descargaba el release real y pisaba el `engram` del desarrollador.**
+  `PlanFor` antepone un `StepBinaryDownload` a cualquier `Status` sin
+  `EngramPath`, y ese paso es la única mutación que no pasa por `Runner`.
+  Verificado: `stat -c %Y ~/.local/bin/engram` cambiaba al correr `go test`, y
+  un test tardaba 94.54s. Arreglo: `releaseBase` arranca en un centinela que no
+  resuelve cuando `testing.Testing()` es true, más `TestMain` en los tres
+  paquetes redirigiendo `HOME`/`LOCALAPPDATA`. Se eligió el centinela sobre un
+  `TestMain` por paquete porque `releaseBase` no está exportada. `internal/engram`
+  pasó de 94.54s a 0.08s.
+- **La descarga era una terminal muda**, la fix #1 de la sección 10
+  reintroducida. `downloadTo` ahora escribe progreso al mismo `live`, en líneas
+  enteras y no con `\r`: `live` puede ser un pipe.
+- **La advertencia de Windows salía en todos los sistemas** en la TUI, y tres
+  goldens la habían fijado. `var hostGOOS` para que los snapshots sean
+  deterministas entre plataformas.
+- **Un binario preexistente en el destino se pisaba sin avisar.** `Download.Replaces`,
+  resuelto al armar el plan: la pantalla de confirmación solo puede ser
+  consentimiento informado si ya lo sabe.
+
+### Riesgo aceptado: el checksum verifica transporte, no procedencia
+
+`checksums.txt` se baja del **mismo release** que el asset. Detecta un asset
+truncado o un intermediario, pero no a quien controle el release. Es el mismo
+riesgo del tag mutable y se cierra con lo mismo que no existe: una firma con una
+clave que no viva en el release.
+
+### Verificación
+
+`gofmt -l .` limpio · `go vet ./...` limpio · `go test ./... -count=1` verde ·
+goldens regenerados · hermeticidad probada a nivel máquina (`stat` del binario
+real sin cambios tras una corrida completa).
+
+Se corrió el instalador **de verdad** contra un `HOME` vacío: descarga con
+progreso, checksum verificado, `engram 1.20.0` ejecutable en el destino, plugin
+instalado y habilitado, `mcpServers` presente en `claude plugin list --json`.
+Ahí apareció el defecto del `enable`.

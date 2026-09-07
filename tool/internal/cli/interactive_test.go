@@ -218,18 +218,20 @@ func stubEngram(t *testing.T, st engram.Status, out engram.Outcome) *[]engram.Pl
 }
 
 func TestResolveEngramPairsTheStateWithItsPlan(t *testing.T) {
-	stubEngram(t, engram.Status{State: engram.StateMarketplaceMissing}, engram.Outcome{})
+	stubEngram(t, engram.Status{State: engram.StateMarketplaceMissing, EngramPath: "/bin/engram"}, engram.Outcome{})
 	st, p := resolveEngram()
 	if st.State != engram.StateMarketplaceMissing {
 		t.Fatalf("State = %v", st.State)
 	}
-	if len(p.Steps()) != 3 {
-		t.Errorf("plan = %v, want the three install commands", p.Lines())
+	// Two, not three: `plugin install` already enables, so the plan does not
+	// also enable.
+	if len(p.Steps()) != 2 {
+		t.Errorf("plan = %v, want the marketplace add and the install", p.Lines())
 	}
 }
 
 func TestInstallEngramPrintsTheCommandsAndReportsSuccess(t *testing.T) {
-	plan := engram.PlanFor(engram.Status{State: engram.StateMarketplaceMissing})
+	plan := engram.PlanFor(engram.Status{State: engram.StateMarketplaceMissing, EngramPath: "/bin/engram"})
 	ready := engram.Status{State: engram.StateReady, EngramPath: "/bin/engram", Version: "0.1.1"}
 	applied := stubEngram(t, engram.Status{}, engram.Outcome{Done: plan.Steps(), Status: ready})
 
@@ -244,8 +246,7 @@ func TestInstallEngramPrintsTheCommandsAndReportsSuccess(t *testing.T) {
 	for _, want := range []string{
 		"claude plugin marketplace add",
 		"claude plugin install engram@engram --scope user --yes",
-		"claude plugin enable engram@engram --scope user",
-		"3 de 3 comando(s) ejecutados",
+		"2 de 2 comando(s) ejecutados",
 		"instalado y habilitado",
 		"reiniciar Claude Code",
 		"engram setup claude-code",
@@ -260,7 +261,7 @@ func TestInstallEngramPrintsTheCommandsAndReportsSuccess(t *testing.T) {
 }
 
 func TestInstallEngramReportsAPartialFailureOnStderr(t *testing.T) {
-	plan := engram.PlanFor(engram.Status{State: engram.StateMarketplaceMissing})
+	plan := engram.PlanFor(engram.Status{State: engram.StateMarketplaceMissing, EngramPath: "/bin/engram"})
 	steps := plan.Steps()
 	failed := steps[1]
 	partial := engram.Outcome{
@@ -280,7 +281,7 @@ func TestInstallEngramReportsAPartialFailureOnStderr(t *testing.T) {
 	if !strings.Contains(errOut.String(), "network unreachable") {
 		t.Errorf("stderr does not carry the failure:\n%s", errOut.String())
 	}
-	if !strings.Contains(out.String(), "1 de 3 comando(s) ejecutados") {
+	if !strings.Contains(out.String(), "1 de 2 comando(s) ejecutados") {
 		t.Errorf("stdout does not say how far it got:\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), "marketplace registrado, plugin sin instalar") {
@@ -289,14 +290,20 @@ func TestInstallEngramReportsAPartialFailureOnStderr(t *testing.T) {
 }
 
 func TestInstallEngramWarnsWhenTheBinaryIsMissing(t *testing.T) {
-	plan := engram.PlanFor(engram.Status{State: engram.StateMarketplaceMissing})
+	plan := engram.PlanFor(engram.Status{State: engram.StateMarketplaceMissing, EngramPath: "/bin/engram"})
 	stubEngram(t, engram.Status{}, engram.Outcome{
 		Done:   plan.Steps(),
 		Status: engram.Status{State: engram.StateReady}, // no EngramPath
 	})
 	var out, errOut bytes.Buffer
-	if err := installEngram(Env{Stdout: &out, Stderr: &errOut}, plan); err != nil {
-		t.Fatal(err)
+	// A ready plugin with no binary is not a success: every hook and the MCP
+	// server it declares fail. It must not exit 0.
+	err := installEngram(Env{Stdout: &out, Stderr: &errOut}, plan)
+	if err == nil {
+		t.Fatal("installEngram() reported success although the binary is missing")
+	}
+	if !strings.Contains(err.Error(), "binario engram no está en el PATH") {
+		t.Errorf("the error does not name the missing binary: %v", err)
 	}
 	if !strings.Contains(errOut.String(), "engram no está en el PATH") {
 		t.Errorf("no warning about the missing binary:\n%s", errOut.String())
@@ -321,7 +328,7 @@ func TestInstallEngramRefusesToDownloadWhileOffline(t *testing.T) {
 	// The TUI already refuses this, but the CLI boundary gates it again for
 	// the same reason --dry-run is checked twice: the flag is far from the
 	// mutation, and one gate is one change away from being gone.
-	plan := engram.PlanFor(engram.Status{State: engram.StateMarketplaceMissing})
+	plan := engram.PlanFor(engram.Status{State: engram.StateMarketplaceMissing, EngramPath: "/bin/engram"})
 	applied := stubEngram(t, engram.Status{}, engram.Outcome{Done: plan.Steps()})
 
 	var out, errOut bytes.Buffer
@@ -340,7 +347,7 @@ func TestInstallEngramRefusesToDownloadWhileOffline(t *testing.T) {
 func TestInstallEngramStillEnablesWhileOffline(t *testing.T) {
 	// Enabling a plugin already on disk contacts nothing, so --offline must
 	// not block it — the same rule the screen encodes.
-	plan := engram.PlanFor(engram.Status{State: engram.StatePluginDisabled})
+	plan := engram.PlanFor(engram.Status{State: engram.StatePluginDisabled, EngramPath: "/bin/engram"})
 	ready := engram.Status{State: engram.StateReady, EngramPath: "/bin/engram"}
 	applied := stubEngram(t, engram.Status{}, engram.Outcome{Done: plan.Steps(), Status: ready})
 
@@ -357,7 +364,7 @@ func TestInstallEngramDoesNotReportAnUnverifiableRunAsSuccess(t *testing.T) {
 	// Every command ran, and the state could not be read back afterwards.
 	// Exiting 0 here would tell the user the plugin is ready when nothing
 	// checked that it is.
-	plan := engram.PlanFor(engram.Status{State: engram.StateMarketplaceMissing})
+	plan := engram.PlanFor(engram.Status{State: engram.StateMarketplaceMissing, EngramPath: "/bin/engram"})
 	stubEngram(t, engram.Status{}, engram.Outcome{
 		Done:   plan.Steps(),
 		Status: engram.Status{State: engram.StateUnknown, EngramPath: "/bin/engram"},
@@ -416,7 +423,18 @@ func TestAnInterruptedInstallReportsWhatLandedInsteadOfDying(t *testing.T) {
 	engramLook = func(name string) (string, error) { return "/fake/bin/" + name, nil }
 	t.Cleanup(func() { engramApply, engramRunner, engramLook = prevApply, prevRunner, prevLook })
 
-	plan := engram.PlanFor(engram.Status{State: engram.StatePluginMissing})
+	// EngramPath is set for a reason this test learned the hard way: without
+	// it the plan starts with a binary download, which is not a Runner call,
+	// so RunStream — and therefore the SIGINT this test exists to raise — was
+	// never reached. Asserted below rather than left to the reader.
+	plan := engram.PlanFor(engram.Status{State: engram.StatePluginMissing,
+		EngramPath: "/fake/bin/engram"})
+	for _, s := range plan.Steps() {
+		if s.Kind == engram.StepBinaryDownload {
+			t.Fatalf("the plan starts with a download; the interrupt path is never reached:\n%v",
+				plan.Lines())
+		}
+	}
 	var out, errOut bytes.Buffer
 	err := installEngram(Env{Stdout: &out, Stderr: &errOut}, plan)
 

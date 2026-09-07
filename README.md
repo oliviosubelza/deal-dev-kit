@@ -55,12 +55,22 @@ not a `kit.yaml` artifact and "Instalar todo" never includes it. The screen
 shows the state, the resolved path of `claude` and the exact commands; only `y`
 installs. `--dry-run` and `--offline` show the plan and change nothing.
 
-Two things stay out of scope on purpose:
+The plan also installs the **`engram` binary**, which the plugin's hooks and its
+MCP server invoke: without it the plugin installs but nothing runs. It goes
+first in the plan — `go install` when a Go toolchain is on PATH (upstream's own
+recommendation on Windows, where unsigned prebuilt binaries trip antivirus
+heuristics), otherwise the pinned release asset, verified against its published
+checksum. It lands in `~/.local/bin` (`%LOCALAPPDATA%\Programs\engram` on
+Windows). **deal-kit never edits PATH**: when that directory is not on it, the
+run says which directory to add and that Claude Code needs a restart.
 
-- **`engram setup claude-code`**, which registers the MCP server. It changes
-  permissions and further global files, so it stays a decision of its own.
-- **Installing the `engram` binary.** The plugin's hooks call it; `deal-kit
-  doctor` reports whether it is on PATH.
+The build installed is the one for the environment deal-kit is running in — the
+same one that resolved `claude`. A Linux `engram` is invisible to a
+Windows-native Claude Code, so there is no cross-boundary install.
+
+One thing stays out of scope on purpose: **`engram setup claude-code`**. It is
+an alternative to the marketplace install, not an extra step — the plugin ships
+its own `.mcp.json`, so the MCP server is registered by the install above.
 
 On Windows the hooks are shell scripts and need Git Bash or WSL: without one of
 them the plugin installs but never runs.

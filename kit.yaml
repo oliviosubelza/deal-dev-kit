@@ -42,8 +42,8 @@ import_rewrites:
 # What `deal-kit init` installs for each project type.
 profiles:
   backend: [general/conventions, general/security, general/tdd, general/persona, backend/architecture, backend/connections, backend/generate-schema, backend/review-security]
-  web:     [general/conventions, general/security, general/tdd, general/persona, web/architecture, web/ui, ui-kit/base, ui-kit/theme, web/generate-schema]
-  mobile:  [general/conventions, general/security, general/tdd, general/persona, mobile/architecture, mobile/offline, mobile/generate-schema]
+  web:     [general/conventions, general/security, general/tdd, general/persona, web/architecture, web/ui, frontend/ux-review, ui-kit/base, ui-kit/theme, web/generate-schema]
+  mobile:  [general/conventions, general/security, general/tdd, general/persona, mobile/architecture, mobile/offline, frontend/ux-review, mobile/generate-schema]
 
 artifacts:
   # ---- skills ----
@@ -65,6 +65,10 @@ artifacts:
   - { id: web/ui,               type: skill, applies_to: [web],     src: skills/web/ui, group: "Web" }
   - { id: mobile/architecture,  type: skill, applies_to: [mobile],  src: skills/mobile/architecture, group: "Mobile" }
   - { id: mobile/offline,       type: skill, applies_to: [mobile],  src: skills/mobile/offline, group: "Mobile" }
+
+  # Web and mobile share the UX principles but not a component library, so this
+  # one skill applies to both and sits in neither platform group.
+  - { id: frontend/ux-review,   type: skill, applies_to: [web, mobile], src: skills/frontend/ux-review, group: "Frontend" }
 
   # ---- commands ----
   - { id: backend/generate-schema, type: command, applies_to: [backend], src: commands/backend/generate-schema.md, group: "Backend" }

@@ -969,3 +969,75 @@ hermeticidad `HERMETIC`.
 ### Tag
 
 `v*`: los cambios son de `tool/`.
+
+---
+
+## 16. `frontend/ux-review`: lente de revisión UX/UI para web y móvil
+
+Skill nueva: ocho principios de UX aplicados al código de una pantalla, con
+hallazgos anclados a `file:line`, un diff concreto y una de cuatro severidades.
+Alcance cerrado en ocho principios — Hick, Miller, espacio en blanco, KISS,
+minimalismo, Don't Make Me Think, divulgación progresiva y jerarquía visual.
+**Accesibilidad queda explícitamente fuera de esta versión** (decisión del
+usuario), y la skill lo dice para que nadie la reintroduzca por inercia.
+
+| Archivo | Qué hace |
+|---|---|
+| `skills/frontend/ux-review/SKILL.md` | la skill (inglés, como el resto) |
+| `kit.yaml` | artefacto `frontend/ux-review` + entrada en los perfiles `web` y `mobile` |
+| `README.md` | fila de `skills/` corregida (decía "PR workflow", eliminada en `03af755`) y sección "The UX/UI review lens" |
+
+### El prefijo del id es convención, no restricción
+
+Verificado en `tool/internal/kit/manifest.go`: **nada relaciona el prefijo del id
+con `applies_to`.** Las únicas validaciones son id único y no vacío, `src`
+presente, `type` conocido, la regla de `dest` por tipo, que cada valor de
+`applies_to` nombre un `project_type` declarado, y que cada perfil solo incluya
+artefactos que soportan ese tipo. El prefijo se usa en dos lugares y ninguno
+restringe nada: `InstallName()` lo aplana para el nombre de la skill instalada, y
+`a.Group` cae al primer segmento del id **solo si** el artefacto no declara
+`group`.
+
+Por eso el id es `frontend/ux-review` con `applies_to: [web, mobile]`: el prefijo
+describe lo que el artefacto cubre. `general/` habría mentido — hoy significa los
+tres tipos —, y `web/` habría escondido que móvil también lo instala.
+
+### Decisiones
+
+| Decisión | Razón |
+|---|---|
+| `group: "Frontend"` | `buildGroups` (`internal/tui/tree.go:32`) arma grupos **solo con artefactos que no son `skill`**, así que el `group` de una skill es inerte en la TUI. Se declara igual para que `kit.yaml` se lea coherente, y "Web" sería falso para un artefacto que también instala móvil. |
+| Sin `applies_to` en el frontmatter | La herramienta lo lee de `kit.yaml` (`manifest.go`) y nunca del archivo. Que 2 de 9 skills lo repitan es drift (§12). |
+| Cuatro severidades, no aceptar/rechazar | Un umbral duro produce falsos positivos — un `DataTable` de 20 columnas es correcto, y un formulario plano de 200 líneas no mejora partido en tres pestañas — y un revisor que rechaza trabajo correcto deja de leerse. |
+| Los números son gatillos, no veredictos | Está dicho en una sección propia y repetido en "What NOT to do": "más de ~7 elementos" obliga a **justificar**, no a rechazar. Un lector que obedece un número sin pensar es el modo de falla. |
+| No repite otras skills | Tabla "Not in this review" que apunta a `general-conventions` (TypeScript estricto, Zod), `web-ui` (catálogo en vez de markup propio) y `web-architecture` / `mobile-architecture` (dónde va cada archivo). KISS queda acotado a complejidad de UI justamente para no pisar arquitectura. |
+
+### De dónde salen las dos ideas prestadas
+
+Se revisaron dos skills públicas: `wonjyou/design-audit` (solo imágenes, 5
+estrellas, sin licencia) y `keysjoao/laws-of-ux-skills` (MIT, sobre código, 3
+estrellas). **Ninguna es adoptable**: inmaduras y ajenas a este design system. Se
+tomaron dos ideas: las cuatro severidades, y el hallazgo anclado a `file:line`
+con diff en vez de prosa — que además es como reportan las lentes de revisión de
+este repo.
+
+### Verificación
+
+`go test ./internal/kit/ -count=1` ok · `gofmt -l .` limpio · `go vet ./...`
+limpio · `go test ./... -count=1` 12/12 · goldens de la TUI regenerados **sin
+diff** (el `group` de una skill no llega a `buildGroups`).
+
+Binario real (`/tmp/deal-kit-ux`, `--kit-dir` al working tree) contra proyectos
+scratch fuera del repo:
+
+- `crm-deal-web`: `init --yes --no-deps` instaló
+  `.claude/skills/frontend-ux-review/SKILL.md`, **idéntico byte a byte** al
+  fuente (`diff` vacío), registrado con hash en `deal-kit.lock`, y `status`
+  reporta `frontend/ux-review  ok`.
+- `crm-deal-mobile`: mismo resultado, `status` → `ok`.
+- `crm-deal-orders-service`: `init --dry-run` **no** menciona el artefacto
+  (`grep -c ux-review` → 0), que es lo que `applies_to: [web, mobile]` promete.
+
+### Tag
+
+`kit-v*` únicamente: no hay cambios bajo `tool/`.

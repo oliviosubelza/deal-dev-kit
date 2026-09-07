@@ -91,7 +91,7 @@ them the plugin installs but never runs.
 | Path        | Contents                                                          |
 | ----------- | ----------------------------------------------------------------- |
 | `kit.yaml`  | Manifest of every installable artifact, its destination and deps  |
-| `skills/`   | Agent skills: development conventions, PR workflow                |
+| `skills/`   | Agent skills: conventions, security, TDD, architecture, UX review |
 | `config/`   | Always-on agent rules, imported from the project's `CLAUDE.md`    |
 | `ui-kit/`   | UI component source, copied into projects by the CLI              |
 | `tool/`     | The `deal-kit` CLI (Go)                                           |
@@ -114,6 +114,20 @@ ensure_line: { file: "CLAUDE.md", line: "@.claude/persona.md" }
 is none, and does nothing if it is already there. It never rewrites the rest of
 the file: `CLAUDE.md` belongs to the project, and the CLI only appends one line
 to it. Running `init` repeatedly converges — the import is never duplicated.
+
+### The UX/UI review lens
+
+`skills/frontend/ux-review` installs as `frontend-ux-review` in **web and
+mobile**. It reads a screen against eight principles — Hick's Law, Miller's Law,
+white space, KISS, minimalism, Don't Make Me Think, progressive disclosure and
+visual hierarchy — and reports findings anchored to `file:line` with a diff and
+one of four severities.
+
+Its thresholds are triggers to justify, never automatic rejections: a reviewer
+that rejects correct work stops being read. It is the first artifact whose id
+prefix is neither a project type nor `general`, because the principles cover two
+of the three types and the id prefix is organisational only — `applies_to` in
+`kit.yaml` is what the CLI reads.
 
 ## Ownership rules
 

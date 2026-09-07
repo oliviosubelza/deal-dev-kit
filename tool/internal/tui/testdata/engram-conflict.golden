@@ -26,10 +26,8 @@
 ║   Los hooks de sesión, los scripts que los ejecutan y la skill       ║
 ║   "memory", dentro de la configuración global de Claude Code.        ║
 ║                                                                      ║
-║   En Windows los hooks necesitan Git Bash o WSL: sin uno de los      ║
-║   dos se instalan pero nunca se ejecutan.                            ║
-║   El binario engram no está en el PATH. El plugin se instala         ║
-║   igual, pero los hooks fallan hasta que esté.                       ║
+║   El binario engram no está en el PATH. Sin él fallan los hooks y    ║
+║   el servidor MCP.                                                   ║
 ║   Después queda pendiente `engram setup claude-code`, que registra   ║
 ║   el servidor MCP. deal-kit no lo ejecuta: cambia permisos y otros   ║
 ║   archivos globales.                                                 ║

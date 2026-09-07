@@ -105,17 +105,27 @@ func queries(markets, plugins string) map[string]reply {
 	}
 }
 
-// withMutations answers the three install commands successfully and flips the
-// query answers once the marketplace has been added, so a whole install can be
-// driven end to end.
+// installFake answers the install commands and flips the query answers as they
+// land, so a whole install can be driven end to end.
+//
+// It mirrors the real `claude`, not a convenient simplification of it:
+// `plugin install` leaves the plugin installed AND enabled, and `plugin enable`
+// fails on an already-enabled plugin exactly as the real CLI does. The earlier
+// fixture installed-but-disabled and accepted any `enable`, which is why the
+// suite happily green-lit a plan whose every from-scratch run ended in
+// "already enabled at user scope" and a non-zero exit.
 type installFake struct {
 	*fakeRunner
 	markets, plugins string
-	// corruptAfterEnable makes the plugin query stop parsing once the last
+	// corruptAfterInstall makes the plugin query stop parsing once the last
 	// mutation succeeded, which is what a machine looks like when claude
 	// prints something unexpected or the query budget is gone.
-	corruptAfterEnable bool
+	corruptAfterInstall bool
 }
+
+// alreadyEnabled is what the real `claude plugin enable` writes to stderr, and
+// it exits non-zero doing it.
+const alreadyEnabled = `Plugin "engram@engram" is already enabled at user scope`
 
 func (f *installFake) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	line := commandLine(name, args)
@@ -128,17 +138,24 @@ func (f *installFake) Run(ctx context.Context, name string, args ...string) ([]b
 		return []byte(f.plugins), nil
 	}
 	out, err := f.fakeRunner.Run(ctx, name, args...)
+	// Refuse the impossible sequence before honouring the reply table: a
+	// fixture that accepts `enable` on an enabled plugin is what hid the bug.
+	if err == nil && line == strings.Join(PluginEnableArgs(), " ") && f.plugins == enabledPlugin {
+		err = &CommandError{Args: append([]string{name}, args...),
+			Stderr: alreadyEnabled, Err: errors.New("exit status 1")}
+	}
 	if err == nil {
 		switch line {
 		case strings.Join(MarketplaceAddArgs(), " "):
 			f.markets = goodMarketplace
 		case strings.Join(PluginInstallArgs(), " "):
-			f.plugins = disabledPlugin
-		case strings.Join(PluginEnableArgs(), " "):
+			// install enables, the way the real one does.
 			f.plugins = enabledPlugin
-			if f.corruptAfterEnable {
+			if f.corruptAfterInstall {
 				f.plugins = `{"broken":`
 			}
+		case strings.Join(PluginEnableArgs(), " "):
+			f.plugins = enabledPlugin
 		}
 	}
 	return out, err
@@ -296,14 +313,14 @@ func TestPlanForEachState(t *testing.T) {
 		state State
 		want  []string
 	}{
+		// No state that installs also enables: `plugin install` already
+		// enables, and a second `enable` fails.
 		{StateMarketplaceMissing, []string{
 			strings.Join(MarketplaceAddArgs(), " "),
 			strings.Join(PluginInstallArgs(), " "),
-			strings.Join(PluginEnableArgs(), " "),
 		}},
 		{StatePluginMissing, []string{
 			strings.Join(PluginInstallArgs(), " "),
-			strings.Join(PluginEnableArgs(), " "),
 		}},
 		{StatePluginDisabled, []string{strings.Join(PluginEnableArgs(), " ")}},
 		{StateReady, nil},
@@ -312,7 +329,9 @@ func TestPlanForEachState(t *testing.T) {
 		{StateUnknown, nil},
 	}
 	for _, tc := range cases {
-		got := PlanFor(Status{State: tc.state}).Lines()
+		// The binary is present in every case here: what this test pins is
+		// the plugin half of the plan. The binary half has its own tests.
+		got := PlanFor(Status{State: tc.state, EngramPath: "/bin/engram"}).Lines()
 		if strings.Join(got, "|") != strings.Join(tc.want, "|") {
 			t.Errorf("state %v: plan = %v, want %v", tc.state, got, tc.want)
 		}
@@ -356,7 +375,7 @@ func TestTheCommandsAreExactlyTheDocumentedSurface(t *testing.T) {
 }
 
 func TestPlanIsImmutable(t *testing.T) {
-	p := PlanFor(Status{State: StateMarketplaceMissing})
+	p := PlanFor(Status{State: StateMarketplaceMissing, EngramPath: "/bin/engram"})
 	steps := p.Steps()
 	steps[0].Args[0] = "rm"
 	steps = append(steps, Step{Kind: StepEnable, Args: []string{"rm", "-rf", "/"}})
@@ -364,7 +383,7 @@ func TestPlanIsImmutable(t *testing.T) {
 	if got := p.Lines()[0]; !strings.HasPrefix(got, ClaudeBin+" ") {
 		t.Errorf("mutating the returned steps changed the plan: %q", got)
 	}
-	if len(p.Steps()) != 3 {
+	if len(p.Steps()) != 2 {
 		t.Errorf("appending to the returned steps changed the plan: %d steps", len(p.Steps()))
 	}
 }
@@ -374,7 +393,6 @@ func TestApplyInstallsFromScratchAndReachesReady(t *testing.T) {
 		fakeRunner: newFake(map[string]reply{
 			strings.Join(MarketplaceAddArgs(), " "): {},
 			strings.Join(PluginInstallArgs(), " "):  {},
-			strings.Join(PluginEnableArgs(), " "):   {},
 		}),
 		markets: noMarketplaces, plugins: noPlugins,
 	}
@@ -383,8 +401,9 @@ func TestApplyInstallsFromScratchAndReachesReady(t *testing.T) {
 	if !out.Applied() {
 		t.Fatalf("Apply failed: %v (at %v)", out.Err, out.Failed)
 	}
-	if len(out.Done) != 3 {
-		t.Errorf("ran %d steps, want 3", len(out.Done))
+	// Two, not three: the install enables. A third `enable` would fail.
+	if len(out.Done) != 2 {
+		t.Errorf("ran %d steps, want 2", len(out.Done))
 	}
 	if out.Status.State != StateReady {
 		t.Errorf("final state = %v, want StateReady", out.Status.State)
@@ -454,9 +473,10 @@ func TestPartialFailureStopsAndReportsWhatIsOnTheMachine(t *testing.T) {
 
 func TestRecoveryAfterAPartialFailureFinishesTheJob(t *testing.T) {
 	f := &installFake{
+		// Only the install is answered: an `enable` the plan must no longer
+		// contain would hit the fake's unknown-command path and fail.
 		fakeRunner: newFake(map[string]reply{
 			strings.Join(PluginInstallArgs(), " "): {},
-			strings.Join(PluginEnableArgs(), " "):  {},
 		}),
 		// where the partial failure above left the machine
 		markets: goodMarketplace, plugins: noPlugins,
@@ -466,8 +486,13 @@ func TestRecoveryAfterAPartialFailureFinishesTheJob(t *testing.T) {
 		t.Fatalf("State = %v, want StatePluginMissing", st.State)
 	}
 	p := PlanFor(st)
-	if len(p.Steps()) != 2 {
-		t.Fatalf("the retry re-adds the marketplace: %v", p.Lines())
+	if len(p.Steps()) != 1 {
+		t.Fatalf("the retry does more than install: %v", p.Lines())
+	}
+	for _, line := range p.Lines() {
+		if strings.Contains(line, "marketplace add") {
+			t.Fatalf("the retry re-adds the marketplace: %v", p.Lines())
+		}
 	}
 	out := Apply(context.Background(), f, found, p, nil)
 	if !out.Applied() || out.Status.State != StateReady {
@@ -481,11 +506,10 @@ func TestACancelledContextRunsNothing(t *testing.T) {
 		fakeRunner: newFake(map[string]reply{
 			strings.Join(MarketplaceAddArgs(), " "): {},
 			strings.Join(PluginInstallArgs(), " "):  {},
-			strings.Join(PluginEnableArgs(), " "):   {},
 		}),
 		markets: noMarketplaces, plugins: noPlugins,
 	}
-	p := PlanFor(Status{State: StateMarketplaceMissing})
+	p := PlanFor(Status{State: StateMarketplaceMissing, EngramPath: "/bin/engram"})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -558,8 +582,13 @@ case "$1 $2" in
       installed) echo '[{"id":"engram@engram","version":"0.1.1","scope":"user","enabled":false}]' ;;
       *) echo '[]' ;;
     esac ;;
-  "plugin install") echo installed > "$state" ;;
-  "plugin enable") echo enabled > "$state" ;;
+  "plugin install") echo enabled > "$state" ;;
+  "plugin enable")
+    if [ "$(cat "$state")" = enabled ]; then
+      echo 'Plugin "engram@engram" is already enabled at user scope' >&2
+      exit 1
+    fi
+    echo enabled > "$state" ;;
   *) echo "unexpected: $@" >&2; exit 1 ;;
 esac
 `)
@@ -570,6 +599,11 @@ esac
 		t.Fatalf("State = %v, want StateMarketplaceMissing (err %v)", st.State, st.Err)
 	}
 
+	// The binary half of the plan is pinned by binary_test.go against an
+	// httptest server; this test is about the claude commands, so the
+	// plan is built as if the binary were already on PATH. Left unset it would
+	// prepend a real release download to an otherwise hermetic end-to-end run.
+	st.EngramPath = "/fake/bin/engram"
 	out := Apply(context.Background(), r, look, PlanFor(st), nil)
 	if !out.Applied() {
 		t.Fatalf("Apply failed: %v", out.Err)
@@ -585,11 +619,16 @@ esac
 	for _, want := range []string{
 		"plugin marketplace add " + MarketplaceURL + "#" + MarketplaceTag + " --scope user",
 		"plugin install engram@engram --scope user --yes",
-		"plugin enable engram@engram --scope user",
 	} {
 		if !strings.Contains(string(calls), want) {
 			t.Errorf("claude was never called with %q\n%s", want, calls)
 		}
+	}
+	// The simulated claude refuses a redundant enable the way the real one
+	// does, so calling it at all would have failed the Apply above; assert it
+	// was never even attempted.
+	if strings.Contains(string(calls), "plugin enable") {
+		t.Errorf("the plan enabled a plugin `install` had already enabled\n%s", calls)
 	}
 }
 
@@ -659,16 +698,19 @@ func TestMutatingStepsStreamTheirOutputToTheCaller(t *testing.T) {
 		fakeRunner: newFake(map[string]reply{
 			strings.Join(MarketplaceAddArgs(), " "): {out: "Cloning marketplace...\n"},
 			strings.Join(PluginInstallArgs(), " "):  {out: "Installed engram\n"},
-			strings.Join(PluginEnableArgs(), " "):   {out: "Enabled engram\n"},
 		}),
 		markets: noMarketplaces, plugins: noPlugins,
 	}
 	var live bytes.Buffer
-	out := Apply(context.Background(), f, found, PlanFor(Status{State: StateMarketplaceMissing}), &live)
+	// EngramPath is set on purpose: without it the plan starts with a binary
+	// download, which is not a Runner call and would never reach this fake.
+	// What this test pins is the streaming of the mutating commands.
+	out := Apply(context.Background(), f, found,
+		PlanFor(Status{State: StateMarketplaceMissing, EngramPath: "/bin/engram"}), &live)
 	if !out.Verified() {
 		t.Fatalf("install did not finish: err=%v state=%v", out.Err, out.Status.State)
 	}
-	for _, want := range []string{"Cloning marketplace...", "Installed engram", "Enabled engram"} {
+	for _, want := range []string{"Cloning marketplace...", "Installed engram"} {
 		if !strings.Contains(live.String(), want) {
 			t.Errorf("the live writer never received %q:\n%s", want, live.String())
 		}
@@ -684,7 +726,8 @@ func TestQueryOutputNeverReachesTheLiveWriter(t *testing.T) {
 		markets: goodMarketplace, plugins: disabledPlugin,
 	}
 	var live bytes.Buffer
-	Apply(context.Background(), f, found, PlanFor(Status{State: StatePluginDisabled}), &live)
+	Apply(context.Background(), f, found,
+		PlanFor(Status{State: StatePluginDisabled, EngramPath: "/bin/engram"}), &live)
 	if strings.Contains(live.String(), "engram@engram") {
 		t.Errorf("a query's JSON was printed to the user:\n%s", live.String())
 	}
@@ -698,18 +741,17 @@ func TestSucceedingCommandsWithAnUnreadableRecheckAreNotVerified(t *testing.T) {
 		fakeRunner: newFake(map[string]reply{
 			strings.Join(MarketplaceAddArgs(), " "): {},
 			strings.Join(PluginInstallArgs(), " "):  {},
-			strings.Join(PluginEnableArgs(), " "):   {},
 		}),
 		markets: noMarketplaces, plugins: noPlugins,
-		corruptAfterEnable: true,
+		corruptAfterInstall: true,
 	}
-	out := Apply(context.Background(), f, found, PlanFor(Status{State: StateMarketplaceMissing}), nil)
+	out := Apply(context.Background(), f, found, PlanFor(Status{State: StateMarketplaceMissing, EngramPath: "/bin/engram"}), nil)
 
 	if !out.Applied() {
 		t.Fatalf("Applied() = false although every command succeeded: %v", out.Err)
 	}
-	if len(out.Done) != 3 {
-		t.Errorf("Done = %d step(s), want 3", len(out.Done))
+	if len(out.Done) != 2 {
+		t.Errorf("Done = %d step(s), want 2", len(out.Done))
 	}
 	if out.Verified() {
 		t.Error("Verified() = true although the final state could not be read")
@@ -726,11 +768,10 @@ func TestAFinishedInstallIsVerified(t *testing.T) {
 		fakeRunner: newFake(map[string]reply{
 			strings.Join(MarketplaceAddArgs(), " "): {},
 			strings.Join(PluginInstallArgs(), " "):  {},
-			strings.Join(PluginEnableArgs(), " "):   {},
 		}),
 		markets: noMarketplaces, plugins: noPlugins,
 	}
-	out := Apply(context.Background(), f, found, PlanFor(Status{State: StateMarketplaceMissing}), nil)
+	out := Apply(context.Background(), f, found, PlanFor(Status{State: StateMarketplaceMissing, EngramPath: "/bin/engram"}), nil)
 	if !out.Verified() {
 		t.Fatalf("Verified() = false for a finished install: err=%v state=%v", out.Err, out.Status.State)
 	}
@@ -751,7 +792,8 @@ func TestTheFinalRecheckDoesNotInheritAnExhaustedBudget(t *testing.T) {
 	f.replies[strings.Join(PluginEnableArgs(), " ")] = reply{}
 	spent := &cancelAfterMutation{installFake: f, cancel: cancel}
 
-	out := Apply(ctx, spent, found, PlanFor(Status{State: StatePluginDisabled}), nil)
+	out := Apply(ctx, spent, found,
+		PlanFor(Status{State: StatePluginDisabled, EngramPath: "/bin/engram"}), nil)
 	if !out.Verified() {
 		t.Fatalf("a finished install reported %v (err %v) after its budget ran out",
 			out.Status.State, out.Err)
@@ -832,4 +874,84 @@ func (s *signalOnWrite) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.buf.String()
+}
+
+func TestAnExhaustedBudgetNamesTheStepThatSpentIt(t *testing.T) {
+	// InstallTimeout covers the whole plan and the binary download runs first,
+	// so a slow download starves `marketplace add`. Reporting only "context
+	// deadline exceeded" against the step that never ran makes a starved clone
+	// indistinguishable from a clone that hung by itself.
+	f := &installFake{
+		fakeRunner: newFake(map[string]reply{
+			strings.Join(MarketplaceAddArgs(), " "): {},
+			strings.Join(PluginInstallArgs(), " "):  {},
+		}),
+		markets: noMarketplaces, plugins: noPlugins,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	spent := &cancelAfterMutation{installFake: f, cancel: cancel}
+
+	out := Apply(ctx, spent, found,
+		PlanFor(Status{State: StateMarketplaceMissing, EngramPath: "/bin/engram"}), nil)
+
+	if out.Applied() {
+		t.Fatal("Apply succeeded although the budget ran out mid-plan")
+	}
+	if out.Failed == nil || out.Failed.Kind != StepInstall {
+		t.Fatalf("Failed = %v, want the step that could not start", out.Failed)
+	}
+	msg := out.Err.Error()
+	if !strings.Contains(msg, strings.Join(MarketplaceAddArgs(), " ")) {
+		t.Errorf("the error does not name the step that consumed the budget:\n%v", msg)
+	}
+	if !strings.Contains(msg, strings.Join(PluginInstallArgs(), " ")) {
+		t.Errorf("the error does not name the step that was starved:\n%v", msg)
+	}
+	// Wrapped, not replaced: the callers that ask what kind of failure it was
+	// must keep getting an answer.
+	if !errors.Is(out.Err, context.Canceled) {
+		t.Errorf("Err = %v, want it to still unwrap to context.Canceled", out.Err)
+	}
+}
+
+func TestTheConfirmationLineDispatchesOnTheStepKind(t *testing.T) {
+	// One tagged union, one dispatch. Line() used to decide "is this a
+	// command?" from len(Args) while runStep switched on Kind, so a StepKind
+	// added later would run down runStep's command branch while rendering
+	// whatever happened to be in Note — or an empty line — on the screen the
+	// user consents from.
+	if got := (Step{Kind: StepGoInstall, Note: "descargar algo"}).Line(); got != "" {
+		t.Errorf("a command step with no arguments rendered a download note: %q", got)
+	}
+	if got := (Step{Kind: StepBinaryDownload, Note: "descargar algo"}).Line(); got != "descargar algo" {
+		t.Errorf("the download step lost its note: %q", got)
+	}
+	if got := (Step{Kind: StepEnable, Args: PluginEnableArgs(), Note: "descargar algo"}).Line(); got !=
+		strings.Join(PluginEnableArgs(), " ") {
+		t.Errorf("a command step rendered its note instead of its command: %q", got)
+	}
+}
+
+// TestNoPlanBothInstallsAndEnables pins the defect a real run against an empty
+// HOME exposed: `plugin install` already enables, so planning `enable` after it
+// makes every from-scratch install end in "already enabled at user scope" and
+// exit non-zero. Only StatePluginDisabled may enable.
+func TestNoPlanBothInstallsAndEnables(t *testing.T) {
+	for _, st := range []State{StateMarketplaceMissing, StatePluginMissing, StatePluginDisabled} {
+		var installs, enables bool
+		for _, s := range PlanFor(Status{State: st, EngramPath: "/bin/engram"}).Steps() {
+			switch s.Kind {
+			case StepInstall:
+				installs = true
+			case StepEnable:
+				enables = true
+			}
+		}
+		if installs && enables {
+			t.Errorf("state %d plans install and enable; install already enables", st)
+		}
+		if st == StatePluginDisabled && !enables {
+			t.Errorf("state %d must still enable what is already on disk", st)
+		}
+	}
 }

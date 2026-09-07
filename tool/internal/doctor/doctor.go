@@ -76,6 +76,13 @@ func ForWeb() []Tool {
 		// least one turned up.
 		{Name: "pnpm", Purpose: "instalar dependencias", VersionArgs: []string{"--version"}},
 		{Name: "npm", Purpose: "instalar dependencias", VersionArgs: []string{"--version"}},
+		// Claude Code and Engram are editor tooling, not project tooling: the
+		// same developer uses them on backend, web and mobile alike. cli.Doctor
+		// calls ForWeb for every project type, and reporting them everywhere is
+		// the intended result, not a leak. Both stay optional — Required keeps
+		// its zero value — so a machine without them still passes.
+		{Name: "claude", Purpose: "instalar el plugin Engram", VersionArgs: []string{"--version"}},
+		{Name: "engram", Purpose: "memoria persistente del agente", VersionArgs: []string{"--version"}},
 	}
 }
 

@@ -223,41 +223,12 @@ func (m BootstrapModel) title(version string) string {
 	return titleText.Render(name) + subtle.Render(sub)
 }
 
-// prose word-wraps sentences to the content width and renders each resulting
-// line on its own. A \n inside a single Render would be padded with spaces on
-// every line, and an over-wide line would be wrapped by the panel instead.
 func (m BootstrapModel) prose(sentences ...string) []string {
-	var out []string
-	for _, s := range sentences {
-		for _, line := range wrapWords(s, m.content()) {
-			out = append(out, subtle.Render(line))
-		}
-	}
-	return out
+	return proseAt(m.content(), sentences...)
 }
 
-// keyLines lays out key/description pairs across as many lines as the panel
-// needs. A single keys() call is one string that the panel would wrap
-// mid-legend on a narrow terminal.
 func (m BootstrapModel) keyLines(pairs ...string) []string {
-	var out []string
-	var chunk []string
-	flush := func() {
-		if len(chunk) > 0 {
-			out = append(out, keys(chunk...))
-			chunk = nil
-		}
-	}
-	for i := 0; i+1 < len(pairs); i += 2 {
-		next := append(append([]string{}, chunk...), pairs[i], pairs[i+1])
-		if len(chunk) > 0 && lipgloss.Width(keys(next...)) > m.content() {
-			flush()
-			next = []string{pairs[i], pairs[i+1]}
-		}
-		chunk = next
-	}
-	flush()
-	return out
+	return keyLinesAt(m.content(), pairs...)
 }
 
 // wrapWords breaks text on spaces so no line exceeds width.

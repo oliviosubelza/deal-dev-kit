@@ -35,6 +35,36 @@ deal-kit doctor                  # diagnose drift and broken setup
 Every command that writes to disk prints its plan first. Pass `--dry-run` to stop
 there, or `--yes` to skip confirmation in CI.
 
+### Engram for Claude Code
+
+Running `deal-kit` with no subcommand opens the interactive browser, whose menu
+carries an **Engram para Claude Code** entry. It installs the
+[Engram](https://github.com/Gentleman-Programming/engram) plugin — persistent
+memory for the agent — into Claude Code at **user-global scope**, by shelling
+out to the `claude` CLI:
+
+```sh
+claude plugin marketplace add https://github.com/Gentleman-Programming/engram.git#<tag> --scope user
+claude plugin install engram@engram --scope user --yes
+claude plugin enable engram@engram --scope user
+```
+
+This is the one thing deal-kit installs outside the project: it writes to the
+user's global Claude Code configuration and never to the repository, so it is
+not a `kit.yaml` artifact and "Instalar todo" never includes it. The screen
+shows the state, the resolved path of `claude` and the exact commands; only `y`
+installs. `--dry-run` and `--offline` show the plan and change nothing.
+
+Two things stay out of scope on purpose:
+
+- **`engram setup claude-code`**, which registers the MCP server. It changes
+  permissions and further global files, so it stays a decision of its own.
+- **Installing the `engram` binary.** The plugin's hooks call it; `deal-kit
+  doctor` reports whether it is on PATH.
+
+On Windows the hooks are shell scripts and need Git Bash or WSL: without one of
+them the plugin installs but never runs.
+
 ## What is in here
 
 | Path        | Contents                                                          |

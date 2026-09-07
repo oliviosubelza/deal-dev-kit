@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/engram"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/lockfile"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
@@ -24,6 +25,7 @@ const (
 	screenSkills
 	screenComponents
 	screenStatus
+	screenEngram
 	screenPlan
 	screenApplied
 	screenFailed
@@ -44,6 +46,20 @@ type Config struct {
 	Roots       map[string]string
 	Rewrites    map[string]string
 	PackageMgr  string
+
+	// Engram and EngramPlan are the Claude Code plugin's state and the exact
+	// commands that would install it, both resolved before the program starts.
+	// The screen renders them and collects consent; it never queries or runs
+	// anything itself, because a streamed install belongs in the normal
+	// terminal rather than inside the alternate screen.
+	Engram     engram.Status
+	EngramPlan engram.Plan
+
+	// DryRun and Offline are the flags the session was started with. They
+	// reach the screen so it can say why "y" will not install, instead of
+	// silently doing nothing.
+	DryRun  bool
+	Offline bool
 }
 
 // item is one selectable artifact.
@@ -98,10 +114,13 @@ type Model struct {
 	filter    string
 	filtering bool
 
-	plan        *plan.Plan
-	err         error
-	changed     int
-	appliedRows []plan.DirSummary // summarised before the plan is released
+	plan *plan.Plan
+	err  error
+	// engramIntent is set only by pressing "y" on the Engram screen. The
+	// install itself runs after the program exits.
+	engramIntent bool
+	changed      int
+	appliedRows  []plan.DirSummary // summarised before the plan is released
 
 	quitting bool
 }
@@ -181,11 +200,11 @@ func (m Model) menu() []menuEntry {
 			note: instaladas(compInstalled, compTotal, "instalados")},
 		{title: "Estado del proyecto", target: screenStatus,
 			note: "qué hay instalado y si cambió"},
-	}
-	if m.updateAvailable() {
-		entries = append(entries, menuEntry{
-			title: "Actualizar el kit", target: screenStatus,
-			note: m.cfg.PinnedKit + " → " + m.cfg.KitVersion})
+		// No "Actualizar el kit" entry: "u" already updates from the status
+		// screen, and its legend says so. A second door to the same action
+		// only costs a menu line, and the menu has to stay scannable.
+		{title: "Engram para Claude Code", target: screenEngram,
+			note: engramNote(m.cfg.Engram)},
 	}
 	return append(entries, menuEntry{title: "Salir", quit: true})
 }
@@ -290,6 +309,25 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen = screenMenu
 		case "u":
 			return m, m.buildPlanFor(m.installedIDs())
+		}
+	case screenEngram:
+		switch key {
+		// Only "y" asks for an install, for the same reason it is the only
+		// key that applies a plan: enter is what navigates INTO this screen,
+		// and on Windows the Enter that launched the process leaks in, so
+		// accepting it as consent would install without a decision.
+		case "y":
+			if m.engramBlocked() != "" {
+				return m, nil
+			}
+			m.engramIntent = true
+			m.quitting = true
+			return m, tea.Quit
+		case "enter", "esc", "left", "h", "n":
+			m.screen = screenMenu
+		case "q":
+			m.quitting = true
+			return m, tea.Quit
 		}
 	case screenPlan:
 		switch key {
@@ -594,6 +632,64 @@ func (m Model) Result() (applied bool, deps map[string]string) {
 		return false, nil
 	}
 	return true, m.plan.Deps
+}
+
+// EngramIntent reports whether the user asked for the Engram plugin to be
+// installed. It is a separate accessor from Result on purpose: Result answers
+// "did a kit sync happen", and overloading it would make one boolean mean two
+// unrelated things.
+func (m Model) EngramIntent() bool { return m.engramIntent }
+
+// engramBlocked is why "y" will not install, or "" when it will. Deciding it
+// in one place keeps the key handler and the screen from disagreeing.
+func (m Model) engramBlocked() string {
+	switch {
+	case m.cfg.DryRun:
+		return "--dry-run: no se ejecuta ningún comando"
+	case m.cfg.Engram.State == engram.StateClaudeMissing:
+		return "no se encontró claude en el PATH"
+	case m.cfg.Engram.State == engram.StateMarketplaceConflict:
+		return "hay otro marketplace llamado engram; deal-kit no lo toca"
+	case m.cfg.Engram.State == engram.StateUnknown:
+		return "no se pudo determinar el estado del plugin"
+	case m.cfg.EngramPlan.Blocked() != "":
+		// An empty plan that is a refusal, not a machine that is already
+		// fine: say which, or the screen reports "nothing to do" for a
+		// platform deal-kit cannot serve.
+		return m.cfg.EngramPlan.Blocked()
+	case m.cfg.EngramPlan.Empty():
+		return "no hay nada que hacer"
+	case m.cfg.Offline && m.cfg.EngramPlan.NeedsDownload():
+		return "--offline: instalar Engram requiere descargar"
+	}
+	return ""
+}
+
+// engramNote is the one-line menu summary of the plugin's state.
+func engramNote(st engram.Status) string {
+	switch st.State {
+	case engram.StateClaudeMissing:
+		return "claude no está instalado"
+	case engram.StateMarketplaceConflict:
+		return "conflicto: revisar antes de instalar"
+	case engram.StateMarketplaceMissing, engram.StatePluginMissing:
+		return "memoria persistente · sin instalar"
+	case engram.StatePluginDisabled:
+		return "instalado pero deshabilitado"
+	case engram.StateReady:
+		if !st.EngramBinaryFound() {
+			// The plugin is in place and every hook still fails. Saying
+			// "installed and enabled" here is the exact lie this feature
+			// exists to stop telling.
+			return "habilitado, pero falta el binario engram"
+		}
+		if st.Version != "" {
+			return "instalado y habilitado · " + st.Version
+		}
+		return "instalado y habilitado"
+	default:
+		return "no se pudo consultar el estado"
+	}
 }
 
 // Err returns a failure from planning or applying.

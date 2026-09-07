@@ -1,14 +1,19 @@
 package tui
 
 import (
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
+	"github.com/oliviosubelza/deal-dev-kit/tool/internal/engram"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/lockfile"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/plan"
@@ -785,4 +790,402 @@ func TestApplyDropsAnOrphanedArtifactFromTheLockfile(t *testing.T) {
 	if _, ok := cfg.Lock.Artifact("general/pr-workflow"); ok {
 		t.Error("the orphan is still recorded in the lockfile")
 	}
+}
+
+// --- engram ---
+
+// engramConfig is testConfig with a resolved Engram state, the way internal/cli
+// hands one over. Nothing in these tests may run `claude` or read ~/.claude:
+// the screen only ever renders what it was given.
+func engramConfig(t *testing.T, st engram.Status) Config {
+	t.Helper()
+	// PlanFor resolves where the engram binary would be installed from the
+	// environment, so the environment is redirected here: no test in this
+	// package may read the real HOME or the real PATH.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
+	t.Setenv("PATH", filepath.Join(home, "no-such-bin"))
+	cfg := testConfig(t, nil)
+	cfg.Engram = st
+	cfg.EngramPlan = engram.PlanFor(st)
+	return cfg
+}
+
+func missingStatus() engram.Status {
+	return engram.Status{
+		State:      engram.StateMarketplaceMissing,
+		ClaudePath: "/usr/local/bin/claude",
+		EngramPath: "/usr/local/bin/engram",
+	}
+}
+
+func TestTheMenuOffersEngramAndStaysScannable(t *testing.T) {
+	m := New(engramConfig(t, missingStatus()))
+	entries := m.menu()
+	if len(entries) != 6 {
+		t.Fatalf("the menu has %d entries, want exactly 6", len(entries))
+	}
+	var titles []string
+	for _, e := range entries {
+		titles = append(titles, e.title)
+	}
+	if titles[len(titles)-1] != "Salir" {
+		t.Errorf("the last entry is %q, want Salir", titles[len(titles)-1])
+	}
+	if titles[4] != "Engram para Claude Code" {
+		t.Errorf("entry 5 is %q, want the Engram entry", titles[4])
+	}
+	// The title shares a 26-column cell with nothing else; a longer one is
+	// silently truncated by lipgloss.
+	for _, e := range entries {
+		if lipgloss.Width(e.title) > 26 {
+			t.Errorf("menu title %q is %d columns, over the 26 the column has",
+				e.title, lipgloss.Width(e.title))
+		}
+	}
+}
+
+func TestTheKitUpdateEntryIsGoneButUpdatingStillWorks(t *testing.T) {
+	// The entry was removed because "u" on the status screen already does it
+	// and its legend says so. Removing the door must not remove the action.
+	cfg := engramConfig(t, missingStatus())
+	cfg.PinnedKit, cfg.KitVersion = "kit-v0.1.0", "kit-v0.2.0"
+	m := New(cfg)
+	if !m.updateAvailable() {
+		t.Fatal("updateAvailable() is false with a stale pin")
+	}
+	for _, e := range m.menu() {
+		if strings.Contains(strings.ToLower(e.title), "actualizar") {
+			t.Errorf("the menu still carries %q", e.title)
+		}
+	}
+	after := send(t, onScreen(m, screenStatus), "u")
+	if after.screen != screenPlan {
+		t.Errorf(`"u" on the status screen went to %v, want screenPlan (err %v)`, after.screen, after.err)
+	}
+}
+
+func TestOnlyYAuthorizesTheEngramInstall(t *testing.T) {
+	// Every other key on this screen must be inert. Enter especially: it is
+	// what navigates INTO the screen, and on Windows the Enter that launched
+	// the process leaks in.
+	for _, k := range []string{"enter", "esc", "n", "q", " ", "a", "up", "down"} {
+		m := onScreen(New(engramConfig(t, missingStatus())), screenEngram)
+		if got := send(t, m, k); got.EngramIntent() {
+			t.Errorf("%q asked for an install", k)
+		}
+	}
+	m := onScreen(New(engramConfig(t, missingStatus())), screenEngram)
+	if got := send(t, m, "y"); !got.EngramIntent() {
+		t.Error(`"y" did not ask for an install`)
+	}
+}
+
+func TestEngramIntentIsSeparateFromTheSyncResult(t *testing.T) {
+	m := send(t, onScreen(New(engramConfig(t, missingStatus())), screenEngram), "y")
+	applied, deps := m.Result()
+	if applied || deps != nil {
+		t.Errorf("Result() = (%v, %v); the Engram screen must not report a kit sync", applied, deps)
+	}
+}
+
+func TestEngramNeedsNoIntentWhenThereIsNothingToDo(t *testing.T) {
+	ready := engram.Status{State: engram.StateReady, ClaudePath: "/bin/claude",
+		EngramPath: "/bin/engram", Version: "0.1.1"}
+	m := onScreen(New(engramConfig(t, ready)), screenEngram)
+	if !m.cfg.EngramPlan.Empty() {
+		t.Fatalf("an already-installed machine produced a plan: %v", m.cfg.EngramPlan.Lines())
+	}
+	if send(t, m, "y").EngramIntent() {
+		t.Error(`"y" asked for an install with nothing to install`)
+	}
+}
+
+func TestEngramIsNotInstalledUnderDryRunOfflineOrConflict(t *testing.T) {
+	conflict := engram.Status{State: engram.StateMarketplaceConflict,
+		ClaudePath: "/bin/claude", FoundRepo: "someone-else/engram"}
+
+	cases := []struct {
+		name string
+		mut  func(*Config)
+	}{
+		{"dry-run", func(c *Config) { c.DryRun = true }},
+		{"offline", func(c *Config) { c.Offline = true }},
+		{"conflict", func(c *Config) {
+			c.Engram, c.EngramPlan = conflict, engram.PlanFor(conflict)
+		}},
+		{"claude missing", func(c *Config) {
+			st := engram.Status{State: engram.StateClaudeMissing}
+			c.Engram, c.EngramPlan = st, engram.PlanFor(st)
+		}},
+		{"unknown", func(c *Config) {
+			st := engram.Status{State: engram.StateUnknown, ClaudePath: "/bin/claude",
+				Err: errors.New("salida ilegible")}
+			c.Engram, c.EngramPlan = st, engram.PlanFor(st)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := engramConfig(t, missingStatus())
+			tc.mut(&cfg)
+			m := onScreen(New(cfg), screenEngram)
+			if reason := m.engramBlocked(); reason == "" {
+				t.Fatal("nothing blocks the install, so the user would get one")
+			}
+			if send(t, m, "y").EngramIntent() {
+				t.Error(`"y" asked for an install anyway`)
+			}
+			// The screen must say why, not just refuse silently.
+			view := ansi.ReplaceAllString(onScreen(New(cfg), screenEngram).View(), "")
+			if !strings.Contains(view, m.engramBlocked()) {
+				t.Errorf("the screen does not show %q:\n%s", m.engramBlocked(), view)
+			}
+		})
+	}
+}
+
+func TestOfflineStillAllowsEnablingWhatIsAlreadyOnDisk(t *testing.T) {
+	// --offline blocks downloads, not local work: enabling an installed plugin
+	// contacts nothing.
+	disabled := engram.Status{State: engram.StatePluginDisabled,
+		ClaudePath: "/bin/claude", EngramPath: "/bin/engram", Version: "0.1.1"}
+	cfg := engramConfig(t, disabled)
+	cfg.Offline = true
+	m := onScreen(New(cfg), screenEngram)
+	if reason := m.engramBlocked(); reason != "" {
+		t.Fatalf("--offline blocked a local-only plan: %s", reason)
+	}
+	if !send(t, m, "y").EngramIntent() {
+		t.Error(`"y" did not ask for the enable`)
+	}
+}
+
+func TestInstallEverythingNeverIncludesEngram(t *testing.T) {
+	// "Instalar todo" iterates m.items, which comes from kit.yaml's artifacts.
+	// Engram is not one, and it must never become one by accident: it writes
+	// to the user's global Claude Code configuration, not to the project.
+	m := send(t, New(engramConfig(t, missingStatus())), "enter")
+	if m.screen != screenPlan {
+		t.Fatalf("screen = %v, want screenPlan (err %v)", m.screen, m.err)
+	}
+	if m.EngramIntent() {
+		t.Error(`"Instalar todo" asked for an Engram install`)
+	}
+	for _, it := range m.items {
+		if strings.Contains(it.id, "engram") {
+			t.Errorf("%q is a selectable artifact; Engram is a global install, not a kit artifact", it.id)
+		}
+	}
+	for _, a := range m.plan.Actions {
+		if strings.Contains(a.Path, ".claude/plugins") {
+			t.Errorf("the plan writes %q, outside the project", a.Path)
+		}
+	}
+}
+
+func TestEngramLinesFitEveryPanelWidth(t *testing.T) {
+	// Measured before the panel renders them, with lipgloss.Width rather than
+	// len: an over-wide line is wrapped and padded, and then looks intended.
+	states := []engram.Status{
+		missingStatus(),
+		{State: engram.StateReady, ClaudePath: "/usr/local/bin/claude", Version: "0.1.1"},
+		{State: engram.StatePluginDisabled, ClaudePath: "/usr/local/bin/claude", Version: "0.1.1"},
+		{State: engram.StateMarketplaceConflict, ClaudePath: "/usr/local/bin/claude",
+			FoundRepo: "some-other-org/engram-with-a-very-long-name"},
+		{State: engram.StateClaudeMissing},
+		{State: engram.StateUnknown, ClaudePath: "/usr/local/bin/claude",
+			Err: errors.New("no se pudo interpretar la salida de `claude plugin list --json`")},
+	}
+	// Both platforms: the Windows hooks warning is now shown on Windows only,
+	// and a warning that only one developer ever renders is exactly the kind
+	// that overflows unnoticed.
+	for _, goos := range []string{"linux", "windows"} {
+		prev := hostGOOS
+		hostGOOS = goos
+		for _, w := range []int{0, 40, 46, 60, 80, 200} {
+			for _, st := range states {
+				m := onScreen(New(engramConfig(t, st)), screenEngram)
+				m.width = w
+				for _, line := range m.engramLines() {
+					if got := lipgloss.Width(line); got > m.content() {
+						t.Errorf("%s, width %d, state %v: line is %d wide, content is %d:\n%q",
+							goos, w, st.State, got, m.content(), ansi.ReplaceAllString(line, ""))
+					}
+				}
+			}
+		}
+		hostGOOS = prev
+	}
+}
+
+func TestTheScreenOffersToInstallAMissingBinary(t *testing.T) {
+	// The machine this feature exists for: plugin enabled, binary absent, so
+	// the MCP server and every hook fail. It used to render "nothing to do".
+	ready := engram.Status{State: engram.StateReady, ClaudePath: "/usr/local/bin/claude",
+		Version: "1.20.0"}
+	cfg := engramConfig(t, ready)
+	if cfg.EngramPlan.Empty() {
+		t.Fatalf("no plan for a ready plugin with no binary (blocked: %q)", cfg.EngramPlan.Blocked())
+	}
+	m := onScreen(New(cfg), screenEngram)
+	if reason := m.engramBlocked(); reason != "" {
+		t.Fatalf("the install is blocked: %s", reason)
+	}
+	if !send(t, m, "y").EngramIntent() {
+		t.Error(`"y" did not ask for the install`)
+	}
+	view := ansi.ReplaceAllString(m.View(), "")
+	d, ok := cfg.EngramPlan.Binary()
+	if !ok {
+		t.Fatal("the plan has no download to show")
+	}
+	if !strings.Contains(view, "destino") {
+		t.Errorf("the screen never names the destination:\n%s", view)
+	}
+	if !strings.Contains(view, filepath.Base(d.Dir)) {
+		t.Errorf("the screen does not show %s:\n%s", d.Dir, view)
+	}
+	// The menu must stop calling this machine "installed and enabled".
+	if note := engramNote(ready); !strings.Contains(note, "binario") {
+		t.Errorf("menu note = %q, want it to name the missing binary", note)
+	}
+}
+
+func TestAnUnsupportedPlatformIsSaidOutLoud(t *testing.T) {
+	// An empty plan that is a refusal must not read as "nothing to do".
+	cfg := engramConfig(t, engram.Status{State: engram.StateMarketplaceMissing,
+		ClaudePath: "/usr/local/bin/claude"})
+	cfg.EngramPlan = engram.Plan{}
+	m := onScreen(New(cfg), screenEngram)
+	if reason := m.engramBlocked(); reason != "no hay nada que hacer" {
+		t.Errorf("a genuinely empty plan says %q", reason)
+	}
+}
+
+func TestViewEngramConfirm(t *testing.T) {
+	m := onScreen(New(engramConfig(t, missingStatus())), screenEngram)
+	assertGolden(t, "engram-confirm", goldenView(m))
+}
+
+func TestViewEngramAlreadyInstalled(t *testing.T) {
+	ready := engram.Status{State: engram.StateReady, ClaudePath: "/usr/local/bin/claude",
+		EngramPath: "/usr/local/bin/engram", Version: "0.1.1"}
+	m := onScreen(New(engramConfig(t, ready)), screenEngram)
+	assertGolden(t, "engram-ready", goldenView(m))
+}
+
+func TestViewEngramConflict(t *testing.T) {
+	conflict := engram.Status{State: engram.StateMarketplaceConflict,
+		ClaudePath: "/usr/local/bin/claude", FoundRepo: "someone-else/engram"}
+	m := onScreen(New(engramConfig(t, conflict)), screenEngram)
+	assertGolden(t, "engram-conflict", goldenView(m))
+}
+
+func TestTheWindowsHooksWarningIsShownOnWindowsOnly(t *testing.T) {
+	// internal/cli/render.go has always gated this sentence behind
+	// runtime.GOOS; this screen printed it to everyone, and three goldens
+	// baked that in. A warning about another operating system is noise, and
+	// noise is what teaches a reader to skip the warnings that do apply.
+	const warning = "Git Bash o WSL"
+	prev := hostGOOS
+	t.Cleanup(func() { hostGOOS = prev })
+
+	for _, tc := range []struct {
+		goos string
+		want bool
+	}{{"linux", false}, {"darwin", false}, {"windows", true}} {
+		hostGOOS = tc.goos
+		view := ansi.ReplaceAllString(
+			onScreen(New(engramConfig(t, missingStatus())), screenEngram).View(), "")
+		if got := strings.Contains(view, warning); got != tc.want {
+			t.Errorf("%s: the Windows hooks warning shown = %v, want %v:\n%s",
+				tc.goos, got, tc.want, view)
+		}
+	}
+}
+
+// engramGoldenConfig is engramConfig with a fixed home instead of a temporary
+// one, so the destination the download step names is the same string on every
+// machine. The asset name carries GOOS and GOARCH and the destination is
+// shaped by GOOS, so this snapshot is only meaningful on one platform;
+// everywhere else the test skips rather than rewriting the golden with another
+// platform's paths under -update.
+func engramGoldenConfig(t *testing.T, st engram.Status) Config {
+	t.Helper()
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skipf("the golden pins linux/amd64 paths and asset names, this is %s/%s",
+			runtime.GOOS, runtime.GOARCH)
+	}
+	t.Setenv("HOME", "/home/deal")
+	t.Setenv("USERPROFILE", "/home/deal")
+	t.Setenv("LOCALAPPDATA", "/home/deal/AppData/Local")
+	t.Setenv("PATH", "/usr/bin")
+	cfg := testConfig(t, nil)
+	cfg.Engram = st
+	cfg.EngramPlan = engram.PlanFor(st)
+	return cfg
+}
+
+func TestViewEngramMissingBinary(t *testing.T) {
+	// The newest and highest-risk rendering path: the plugin is installed and
+	// enabled, the binary its hooks call is not there, so the screen has to
+	// name the download, the exact destination and the fact that it is not on
+	// PATH. It was only ever checked with strings.Contains.
+	ready := engram.Status{State: engram.StateReady, ClaudePath: "/usr/local/bin/claude",
+		Version: "1.20.0"}
+	m := onScreen(New(engramGoldenConfig(t, ready)), screenEngram)
+	assertGolden(t, "engram-binary-missing", goldenView(m))
+}
+
+func TestAnExistingFileAtTheDestinationIsNamedBeforeConsent(t *testing.T) {
+	// binaryDir falls through to the first candidate when it exists but is not
+	// on PATH, and the install renames over whatever is at that exact path.
+	// Detect's PATH lookup cannot see that file, so this screen is the only
+	// place the user could ever hear about it.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
+	t.Setenv("PATH", filepath.Join(home, "no-such-bin"))
+	dir := filepath.Join(home, ".local", "bin")
+	if runtime.GOOS == "windows" {
+		dir = filepath.Join(home, "AppData", "Local", "Programs", "engram")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ready := engram.Status{State: engram.StateReady, ClaudePath: "/usr/local/bin/claude",
+		Version: "1.20.0"}
+	before := ansi.ReplaceAllString(
+		onScreen(New(withEngramPlan(t, ready)), screenEngram).View(), "")
+	if strings.Contains(before, "reemplaza") {
+		t.Fatalf("an empty destination was announced as a replacement:\n%s", before)
+	}
+
+	target := filepath.Join(dir, engram.BinaryName())
+	if err := os.WriteFile(target, []byte("someone else's engram"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	after := ansi.ReplaceAllString(
+		onScreen(New(withEngramPlan(t, ready)), screenEngram).View(), "")
+	if !strings.Contains(after, "reemplaza") {
+		t.Errorf("the screen never says the existing file is replaced:\n%s", after)
+	}
+	if !strings.Contains(after, filepath.Base(target)) {
+		t.Errorf("the screen does not name what is being replaced:\n%s", after)
+	}
+}
+
+// withEngramPlan builds a Config against whatever the environment currently
+// says, without redirecting it: the caller is the one arranging the
+// destination.
+func withEngramPlan(t *testing.T, st engram.Status) Config {
+	t.Helper()
+	cfg := testConfig(t, nil)
+	cfg.Engram = st
+	cfg.EngramPlan = engram.PlanFor(st)
+	return cfg
 }

@@ -2,7 +2,7 @@
 
 Documento de traspaso. **Sí está versionado**: `git ls-files HANDOFF.md` lo lista y
 no aparece en `.gitignore` (la versión anterior de esta línea afirmaba lo contrario).
-Última actualización: 2026-09-07.
+Última actualización: 2026-09-08.
 
 ---
 
@@ -236,6 +236,7 @@ No relitigar sin motivo nuevo.
 | Solo lo que la presentación afirma | Sin inventar convenciones, sin marcar huecos. |
 | `general/pr-workflow` eliminada | Todo lo que diría ya está en `general/conventions`. |
 | `command` instala por nombre "leaf", no aplanado | El nombre de archivo de un command ES lo que un humano escribe (`/generate-schema`); un prefijo de grupo lo contradice y el equipo de collections ya documentó `/generate-schema` sin prefijo. `skill` y `agent` sí se quedan aplanados: nadie tipea el nombre de una skill (la carga el modelo por descripción) ni el de un agent (lo referencia el orquestador). Ver §9. |
+| `ui-kit/package.json` privado, solo para CI | El kit se sigue distribuyendo copiando fuente: ese `package.json` no se publica, no buildea y no cambia nada de la instalación. Existe para que `tsc --noEmit` pueda correr en CI. Sus versiones se derivan de los bloques `npm:` de `kit.yaml`, así que se compila contra lo mismo que instalan los proyectos. |
 
 ---
 
@@ -276,6 +277,9 @@ go build -o /tmp/deal-kit ./cmd/deal-kit
 go test ./... -count=1
 go test ./internal/tui/ -update          # regenerar goldens
 gofmt -l . && go vet ./...
+
+cd /mnt/c/SoftwareDevelopment/deal-dev-kit/ui-kit
+npm ci && npm run typecheck    # tsc --noEmit sobre los 70 .ts/.tsx del ui-kit
 ```
 
 Proyecto de prueba: `/mnt/c/SoftwareDevelopment/deal-test/crm-deal-web`
@@ -1041,3 +1045,151 @@ scratch fuera del repo:
 ### Tag
 
 `kit-v*` únicamente: no hay cambios bajo `tool/`.
+
+---
+
+## 16. El ui-kit ahora se compila (`ci: typecheck del ui-kit`)
+
+### Lo que estaba pasando
+
+Los 70 archivos `.ts`/`.tsx` de `ui-kit/` **nunca se habían compilado**. No había
+`tsconfig.json` ni `package.json` en ningún lado del repo, y `.github/workflows/ci.yml`
+solo corría los pasos de Go (`go vet`, `go test`, `go build`) más `shellcheck`. El único
+lugar donde esos componentes veían un compilador era el proyecto que los instalaba, es
+decir: después de publicar el tag.
+
+### Qué se agregó
+
+| Archivo | Para qué |
+|---|---|
+| `ui-kit/package.json` | `"private": true`, sin build ni publish. Un solo script: `typecheck` → `tsc --noEmit`. Las `devDependencies` se derivan de los bloques `npm:` de `kit.yaml`, más `react`, `react-dom`, `@types/*` y `typescript`. |
+| `ui-kit/tsconfig.json` | `strict` (lo que exige la skill `general-conventions`), más `noUnusedLocals`, `noUnusedParameters` y `noFallthroughCasesInSwitch`. `noEmit`, `jsx: react-jsx`, y `paths` mapeando `@/*` a la raíz de `ui-kit/` para que resuelvan los imports internos. |
+| `ui-kit/package-lock.json` | Versionado, para que CI corra `npm ci` y sea reproducible. |
+| Job `ui-kit` en `ci.yml` | `actions/setup-node@v4` con caché de npm, `npm ci`, `npm run typecheck`. Mismo estilo que el job `tool`. |
+
+`.gitignore` ya tenía `node_modules/` sin anclar, así que cubre `ui-kit/node_modules`
+sin tocar nada.
+
+### Los dos errores que aparecieron
+
+Ambos de nivel lint, ninguno un bug de comportamiento:
+
+- `components/ui/scroll-area.tsx:3` — `import * as React from "react"` sin usar
+  (`TS6133`). Con `jsx: react-jsx` el import ya no hace falta. Se borró la línea.
+- `components/data-table/DataTable.tsx:503` — `function SortableDataRow<T>` declaraba
+  un genérico `T` que el cuerpo nunca usa (`TS6133`). Se borró el `<T>`. El único
+  call site (línea 938) no lo pasaba, así que no cambia nada.
+
+### `react` no está en ningún bloque `npm:` de `kit.yaml`
+
+Es el único paquete que el ui-kit importa y el manifiesto no declara (39 imports).
+**Se dejó así a propósito**: el `project_type` `web` ya es React + Vite, así que React
+es la base del proyecto, no algo que instalar componente por componente. Declararlo en
+los 57 bloques `npm:` sería ruido y no cambiaría lo que se instala. En `package.json`
+sí está, porque `tsc` necesita sus tipos.
+
+### Verificación
+
+```
+cd ui-kit && npm install          # 147 paquetes, 0 vulnerabilidades
+npx tsc --noEmit                  # 2 errores → arreglados → limpio
+cd tool && gofmt -l .             # sin salida
+go vet ./... && go test ./... -count=1   # todo ok
+go test ./internal/kit/ -count=1  # ok — kit.yaml no se tocó
+```
+
+### Tag
+
+`kit-v*`: cambia `ui-kit/`. `ci.yml` no está bajo `tool/` y no dispara `v*`.
+
+---
+
+## 17. Defecto: la convergencia se reportaba como conflicto y congelaba el update
+
+`classify()` en `tool/internal/plan/plan.go` chequeaba en este orden: no existe →
+`Create`; no está en el lock → `Blocked`; **`current != recorded` → `Blocked`**;
+`current == srcHash` → `Unchanged`; si no → `Overwrite`.
+
+El chequeo del hash del lock corría **antes** que el de igualdad de contenido. Cuando
+alguien arregla un archivo del kit en su proyecto y ese mismo arreglo después sube
+upstream, el archivo en disco queda **byte a byte igual** al que el kit escribiría, pero
+el lock sigue guardando el hash de la versión vieja. Resultado: `Blocked`, con el motivo
+`editado localmente desde que deal-kit lo escribió`.
+
+**Eso no es un conflicto, es convergencia.** No hay nada que sobreescribir y nada que
+perder: los bytes en disco ya son los bytes que el kit quiere.
+
+No es un caso de borde. `skills/web/ui/SKILL.md` le dice explícitamente al equipo que
+arregle el archivo del kit localmente y suba el cambio upstream, así que este estado es
+el **final normal** de ese flujo.
+
+### Era irrecuperable
+
+- No hay flag `--force` ni "adopt" (los flags están en `tool/cmd/deal-kit/main.go:50-57`).
+- `Plan.Apply` se niega a correr mientras haya **cualquier** cosa bloqueada, así que un
+  solo archivo convergido congelaba el update entero, incluidos artefactos que no tenían
+  nada que ver.
+
+Caso real que lo motivó: `C:\SoftwareDevelopment\frontend-crm` (lock en `kit-v0.8.0`)
+tenía `src/shared/ui/scroll-area.tsx` y `src/shared/ui/data-table/DataTable.tsx`
+bloqueados, ambos idénticos a `kit-v0.9.0` módulo CRLF y la reescritura de imports.
+
+### El arreglo
+
+`current == srcHash → Unchanged` pasa **arriba** de `current != recorded → Blocked`. La
+igualdad de contenido le gana a la contabilidad del lock.
+
+### El lock se autocura, con una condición
+
+Cada acción no bloqueada se registra con `Hash: act.hash` (que es `srcHash`) en
+`plan.go:109-111`, y `Apply` reescribe la entrada con ese hash. O sea que el hash viejo
+se corrige solo — **pero solo si `Apply` llega a correr**. `internal/cli/cli.go:298-310`
+corta antes cuando `len(p.Changes()) == 0`, así que un run donde lo único "distinto" es
+el hash rancio imprime `ya está actualizado` y no reescribe el lock. Es inocuo: el plan
+ya dice `Unchanged` y `status` dice `ok`, así que el estado es estable y no bloquea. En
+el caso real —un update de kit que sí trae otros cambios— `Apply` corre y el hash queda
+corregido. Verificado con el binario real, ver abajo.
+
+### Alcance: el branch `!owned` no se tocó
+
+Un archivo que deal-kit **nunca** escribió sigue siendo `Blocked` aunque su contenido
+coincida. Es del proyecto, y esa política es deliberada (§4.2: eso es lo que resolvería
+un `deal-kit adopt`, que sigue pendiente). `TestBlockedWhenAnUnmanagedFileIsInTheWay` lo
+sigue fijando.
+
+### `planRemovals` **no** tiene el mismo problema
+
+`planRemovals` (`plan.go:158-190`) compara `current != old.Hash` y bloquea con
+`reasonRemovedEdited`. Ahí **no hay con qué converger**: el artefacto dejó de producir
+ese archivo, así que no existe un `srcHash` contra el cual comparar. La única referencia
+posible es lo que deal-kit escribió la última vez, que es exactamente lo que ya compara.
+No se cambió, y no hay reordenamiento análogo que hacer.
+
+### Tests
+
+| Test | Sin la corrección |
+|---|---|
+| `plan.TestAConvergedFileIsUnchangedEvenWhenTheLockIsStale` | `kind = "blocked" (editado localmente desde que deal-kit lo escribió), want unchanged` |
+| `plan.TestApplyRewritesTheStaleHashOfAConvergedFile` | `1 archivo(s) requieren atención antes de aplicar` |
+
+### Verificación
+
+`gofmt -l .` sin salida · `go vet ./...` limpio · `go test ./... -count=1` 12/12 ·
+goldens de la TUI regenerados **sin diff** (el cambio es de clasificación, no de
+renderizado, y ningún golden fija un archivo convergido).
+
+Binario real contra un proyecto scratch (`/tmp/conv-proj`, perfil `web`, `--kit-dir` al
+working tree) con el hash de `src/shared/lib/utils.ts` corrompido a mano en el lock para
+reproducir la convergencia:
+
+```
+deal-kit-old status → ui-kit/base  MODIFICADO  src/shared/lib/utils.ts
+deal-kit     status → ui-kit/base  ok
+```
+
+Y con otro cambio en el mismo run (para que `Apply` corra), el lock volvió al hash
+correcto solo.
+
+### Tag
+
+`v*` únicamente: el cambio vive entero bajo `tool/`.

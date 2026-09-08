@@ -1,13 +1,13 @@
 ---
 name: web-ui
-description: "The CRM DEAL shared UI catalog installed at src/shared/ui — shadcn/ui primitives on Radix + Tailwind v4, plus composed DataTable and FilterBar. Use whenever building or editing UI in crm-deal-web: forms, tables, dialogs, filters, empty and loading states, layout. Load before writing any custom markup for something this catalog already covers, and before pulling a new component in with deal-kit."
+description: "The CRM DEAL shared UI catalog installed at src/shared/ui — shadcn/ui primitives on Base UI + Tailwind v4, plus composed DataTable and FilterBar. Use whenever building or editing UI in crm-deal-web: forms, tables, dialogs, filters, empty and loading states, layout. Load before writing any custom markup for something this catalog already covers, and before pulling a new component in with deal-kit."
 ---
 
 # CRM DEAL UI catalog
 
 Two layers, both living under `src/shared/ui/`:
 
-1. **Primitives** (`shared/ui/*.tsx`) — unmodified shadcn/ui components on Radix (Button, Dialog, Table, Field, Select, Sidebar, …). Standard shadcn API: if you know shadcn, you know these.
+1. **Primitives** (`shared/ui/*.tsx`) — unmodified shadcn/ui components (Button, Dialog, Table, Field, Select, Sidebar, …). Standard shadcn API: if you know shadcn, you know these. Most are built on **Base UI** (`@base-ui/react`); `Accordion`, `AlertDialog`, `AspectRatio` and `Avatar` still sit on Radix, and `Badge`, `Breadcrumb`, `Button` and `ButtonGroup` pull only Radix's `Slot` for `asChild`. You rarely touch the underlying library — but when you read a component's source, that is why the import differs.
 2. **Composed components** (`shared/ui/data-table/`) — built from primitives for what shadcn does not ship: `DataTable` (sortable, filterable, paginated tables with row actions) and `FilterBar` (declarative filter toolbar).
 
 This catalog is **web only**. `crm-deal-mobile` uses React Native Paper; nothing here applies there.
@@ -73,8 +73,8 @@ The contribution flow lives in the `deal-dev-kit` repository's `CONTRIBUTING.md`
 | Standalone label (outside a `Field`) | `Label` |
 | Input with icon/button/addon | `InputGroup`, `InputGroupAddon`, `InputGroupButton`, `InputGroupText`, `InputGroupInput`, `InputGroupTextarea` |
 | Multi-line text | `Textarea` |
-| Select (styled) | `Select` (Radix-based, custom popover) |
-| Select (native `<select>`) | `NativeSelect` — when native behavior and a11y matter more than styling |
+| Select (dropdown of fixed options) | `Select` — **the default for every select.** Base UI primitive in a styled popover: `Select`, `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectGroup`, `SelectItem`, `SelectLabel`, `SelectSeparator`. |
+| A real `<select>` element | `NativeSelect` — **only** when the native element itself is the requirement: an uncontrolled native form submit, or the OS picker on mobile web. The browser paints its `<option>`s, so they ignore `theme.css`, semantic tokens and `className` entirely. Exports `NativeSelect`, `NativeSelectOptGroup`, `NativeSelectOption`. |
 | Searchable select / autocomplete | `Combobox` |
 | OTP input | `InputOTP` |
 | Checkbox / switch / radio | `Checkbox`, `Switch`, `RadioGroup` |
@@ -284,4 +284,5 @@ This is the pattern for any environment-specific need the catalog grows: a plugg
 - **Do not import CRM DEAL's domain into `shared/ui/`.** No entities, no API client, no store, no routes. That coupling is what this catalog exists to avoid. If a component needs something environment-specific, add an injection point.
 - **Do not build a custom table, form layout, empty state, or skeleton** when `DataTable`, `Field`, `Empty` or `Skeleton` covers it. Check the [catalog](#component-catalog) first.
 - **Do not add a barrel that re-exports everything** from `shared/ui/`. Every file has to stand on its own so `deal-kit` can install it individually; a barrel defeats that and drags the whole catalog into every bundle.
+- **Do not reach for `NativeSelect` as "the simple select".** `Select` is the default. A native `<select>` renders its `<option>`s through the operating system, so they take no theme and no tokens and will not match the rest of the app. Pick it only when a real `<select>` element is a hard requirement.
 - **Do not copy component files by hand** between projects. Use `deal-kit add`, which resolves dependencies, installs packages and rewrites imports. A hand copy will show up as an unmanaged file that `deal-kit` then refuses to touch.

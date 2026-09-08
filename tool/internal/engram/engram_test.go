@@ -983,7 +983,11 @@ func TestAStepThatOutlivesTheBudgetIsNamedByBudgetErr(t *testing.T) {
 
 	f := &blockingUntilDone{fakeRunner: newFake(nil), target: line}
 	st := Status{State: StateMarketplaceMissing, ClaudePath: "/fake/bin/claude", GoPath: "/fake/bin/go"}
-	out := Apply(ctx, f, found, PlanFor(st), nil)
+	// Forced to windows: go install is only preferred there (see
+	// TestGoInstallIsPreferredWhenTheToolchainIsThere). PlanFor's real
+	// runtime.GOOS would pick the download step on Linux/macOS CI instead,
+	// which isn't mediated by the fake Runner at all and reaches the network.
+	out := Apply(ctx, f, found, planFor("windows", "amd64", st), nil)
 
 	if out.Err == nil {
 		t.Fatal("a step killed by the shared timeout was reported as success")
@@ -1008,7 +1012,8 @@ func TestAnExplicitlyCancelledStepIsNotReportedAsABudgetFailure(t *testing.T) {
 
 	f := &blockingUntilDone{fakeRunner: newFake(nil), target: line, cancelSelf: cancel}
 	st := Status{State: StateMarketplaceMissing, ClaudePath: "/fake/bin/claude", GoPath: "/fake/bin/go"}
-	out := Apply(ctx, f, found, PlanFor(st), nil)
+	// Forced to windows for the same reason as the test above.
+	out := Apply(ctx, f, found, planFor("windows", "amd64", st), nil)
 
 	if out.Err == nil {
 		t.Fatal("a cancelled step was reported as success")

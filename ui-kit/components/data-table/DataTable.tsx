@@ -500,7 +500,7 @@ function RowDragHandle() {
 }
 
 /** <tr> arrastrable verticalmente. Provee sus listeners al grip de la celda __dragrow__. */
-function SortableDataRow<T>({
+function SortableDataRow({
   rowId,
   className,
   onClick,

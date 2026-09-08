@@ -236,6 +236,7 @@ No relitigar sin motivo nuevo.
 | Solo lo que la presentación afirma | Sin inventar convenciones, sin marcar huecos. |
 | `general/pr-workflow` eliminada | Todo lo que diría ya está en `general/conventions`. |
 | `command` instala por nombre "leaf", no aplanado | El nombre de archivo de un command ES lo que un humano escribe (`/generate-schema`); un prefijo de grupo lo contradice y el equipo de collections ya documentó `/generate-schema` sin prefijo. `skill` y `agent` sí se quedan aplanados: nadie tipea el nombre de una skill (la carga el modelo por descripción) ni el de un agent (lo referencia el orquestador). Ver §9. |
+| `ui-kit/package.json` privado, solo para CI | El kit se sigue distribuyendo copiando fuente: ese `package.json` no se publica, no buildea y no cambia nada de la instalación. Existe para que `tsc --noEmit` pueda correr en CI. Sus versiones se derivan de los bloques `npm:` de `kit.yaml`, así que se compila contra lo mismo que instalan los proyectos. |
 
 ---
 
@@ -276,6 +277,9 @@ go build -o /tmp/deal-kit ./cmd/deal-kit
 go test ./... -count=1
 go test ./internal/tui/ -update          # regenerar goldens
 gofmt -l . && go vet ./...
+
+cd /mnt/c/SoftwareDevelopment/deal-dev-kit/ui-kit
+npm ci && npm run typecheck    # tsc --noEmit sobre los 70 .ts/.tsx del ui-kit
 ```
 
 Proyecto de prueba: `/mnt/c/SoftwareDevelopment/deal-test/crm-deal-web`
@@ -1041,3 +1045,59 @@ scratch fuera del repo:
 ### Tag
 
 `kit-v*` únicamente: no hay cambios bajo `tool/`.
+
+---
+
+## 16. El ui-kit ahora se compila (`ci: typecheck del ui-kit`)
+
+### Lo que estaba pasando
+
+Los 70 archivos `.ts`/`.tsx` de `ui-kit/` **nunca se habían compilado**. No había
+`tsconfig.json` ni `package.json` en ningún lado del repo, y `.github/workflows/ci.yml`
+solo corría los pasos de Go (`go vet`, `go test`, `go build`) más `shellcheck`. El único
+lugar donde esos componentes veían un compilador era el proyecto que los instalaba, es
+decir: después de publicar el tag.
+
+### Qué se agregó
+
+| Archivo | Para qué |
+|---|---|
+| `ui-kit/package.json` | `"private": true`, sin build ni publish. Un solo script: `typecheck` → `tsc --noEmit`. Las `devDependencies` se derivan de los bloques `npm:` de `kit.yaml`, más `react`, `react-dom`, `@types/*` y `typescript`. |
+| `ui-kit/tsconfig.json` | `strict` (lo que exige la skill `general-conventions`), más `noUnusedLocals`, `noUnusedParameters` y `noFallthroughCasesInSwitch`. `noEmit`, `jsx: react-jsx`, y `paths` mapeando `@/*` a la raíz de `ui-kit/` para que resuelvan los imports internos. |
+| `ui-kit/package-lock.json` | Versionado, para que CI corra `npm ci` y sea reproducible. |
+| Job `ui-kit` en `ci.yml` | `actions/setup-node@v4` con caché de npm, `npm ci`, `npm run typecheck`. Mismo estilo que el job `tool`. |
+
+`.gitignore` ya tenía `node_modules/` sin anclar, así que cubre `ui-kit/node_modules`
+sin tocar nada.
+
+### Los dos errores que aparecieron
+
+Ambos de nivel lint, ninguno un bug de comportamiento:
+
+- `components/ui/scroll-area.tsx:3` — `import * as React from "react"` sin usar
+  (`TS6133`). Con `jsx: react-jsx` el import ya no hace falta. Se borró la línea.
+- `components/data-table/DataTable.tsx:503` — `function SortableDataRow<T>` declaraba
+  un genérico `T` que el cuerpo nunca usa (`TS6133`). Se borró el `<T>`. El único
+  call site (línea 938) no lo pasaba, así que no cambia nada.
+
+### `react` no está en ningún bloque `npm:` de `kit.yaml`
+
+Es el único paquete que el ui-kit importa y el manifiesto no declara (39 imports).
+**Se dejó así a propósito**: el `project_type` `web` ya es React + Vite, así que React
+es la base del proyecto, no algo que instalar componente por componente. Declararlo en
+los 57 bloques `npm:` sería ruido y no cambiaría lo que se instala. En `package.json`
+sí está, porque `tsc` necesita sus tipos.
+
+### Verificación
+
+```
+cd ui-kit && npm install          # 147 paquetes, 0 vulnerabilidades
+npx tsc --noEmit                  # 2 errores → arreglados → limpio
+cd tool && gofmt -l .             # sin salida
+go vet ./... && go test ./... -count=1   # todo ok
+go test ./internal/kit/ -count=1  # ok — kit.yaml no se tocó
+```
+
+### Tag
+
+`kit-v*`: cambia `ui-kit/`. `ci.yml` no está bajo `tool/` y no dispara `v*`.

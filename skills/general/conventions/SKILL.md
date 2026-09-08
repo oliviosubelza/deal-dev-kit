@@ -23,6 +23,12 @@ fix: mask phone numbers in the audit log
 docs: document the filter contract
 ```
 
+An AI agent ends its commits with a `Co-Authored-By` trailer, so the history shows what wrote the change:
+
+```
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
 ## Zod is the single source of truth
 
 One schema both validates and types. Never declare a TypeScript type and a validator separately for the same data — they drift, and the drift shows up in production.

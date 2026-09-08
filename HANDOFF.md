@@ -1196,7 +1196,64 @@ correcto solo.
 
 ---
 
-## 18. `repo_skills_test.go`: la prosa de las skills ahora se valida contra el código
+## 18. `Co-Authored-By` en `general-conventions` (`feat/kit-conventions-coauthor`)
+
+Regla nueva en `skills/general/conventions/SKILL.md`, **justo debajo** del bloque de
+Conventional Commits (antes de "## Zod is the single source of truth"):
+
+```
+An AI agent ends its commits with a `Co-Authored-By` trailer, so the history shows
+what wrote the change:
+
+    Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
+Genérica (no específica de Claude en el texto), un solo ejemplo.
+
+### Convención agregada por el dueño, NO por el briefing del coordinador
+
+La presentación de agosto 2026 (§8) no menciona atribución de commits. Esta regla la
+decidió el dueño del repo a propósito. Es la excepción explícita a "solo lo que la
+presentación afirma" (§5), documentada acá para que nadie la borre pensando que es drift.
+
+### Test
+
+`tool/internal/kit/repo_conventions_test.go` (nuevo, paquete `kit`, junto a
+`repo_manifest_test.go`): lee el `SKILL.md` real y afirma que
+
+- contiene el trailer `Co-Authored-By:` (con sus dos puntos), y
+- ese trailer aparece **después** del heading `**Conventional Commits**` del cuerpo
+  (no de la mención en el frontmatter `description:`), fijando el emplazamiento que
+  pidió el dueño.
+
+Cambio de producción que lo hace fallar: quitar la guía de `SKILL.md`. Verificado al
+revés — sin la regla, `FAIL: ... does not carry the Co-Authored-By trailer rule for AI
+commits`.
+
+### Verificación
+
+`gofmt -l .` limpio · `go vet ./...` limpio · `go test ./... -count=1` verde ·
+goldens de la TUI **sin diff** (es un cambio de cuerpo de skill; la TUI renderiza
+nombres de artefactos, no cuerpos).
+
+Binario real (`/tmp/deal-kit`, `--kit-dir` al working tree) contra
+`/tmp/coauthor-proj` (perfil `web`, `--type web --yes --no-deps`):
+`.claude/skills/general-conventions/SKILL.md` **idéntico byte a byte** al fuente
+(`diff` vacío), la regla presente en la copia instalada, `status` →
+`general/conventions  ok`.
+
+### Tag
+
+`kit-v*` obligado: cambia `skills/`, que es lo que los proyectos pinean.
+
+`v*` es discutible. Por la letra del decision gate ("anything under `tool/`" → `v*`)
+el test nuevo `repo_conventions_test.go` lo dispara; por el propósito del namespace
+("builds binaries") no, porque un archivo de test no cambia el binario que se publica.
+**Decisión del dueño**: cortar solo `kit-v*`, o los dos por prolijidad del gate.
+
+---
+
+## 19. `repo_skills_test.go`: la prosa de las skills ahora se valida contra el código
 
 `kit.yaml` está protegido por `repo_manifest_test.go` desde el principio. La prosa de
 `skills/` no tenía **nada** equivalente, y derivó dos veces:

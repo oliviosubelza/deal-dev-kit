@@ -37,12 +37,25 @@ func run(args []string) error {
 		return nil
 	}
 
+	cmd, env, fs, flags, err := parseArgs(args)
+	if err != nil {
+		return err
+	}
+	return cmd.run(env, fs, flags)
+}
+
+// parseArgs resolves the subcommand and parses its flags into an Env, without
+// running anything. Kept separate from run so the flag-to-Env wiring — the
+// one place a flag either reaches its Env field or silently does not, e.g.
+// --dry-run failing to reach env.DryRun and letting a "preview" turn into a
+// real write — is testable without executing a real command.
+func parseArgs(args []string) (command, cli.Env, *flag.FlagSet, *commandFlags, error) {
 	// No subcommand opens the interactive browser.
 	name, rest := extractCommand(args)
 	cmd, ok := lookup(name)
 	if !ok {
 		usage()
-		return fmt.Errorf("comando desconocido %q", name)
+		return command{}, cli.Env{}, nil, nil, fmt.Errorf("comando desconocido %q", name)
 	}
 
 	fs := flag.NewFlagSet(invoked()+" "+name, flag.ContinueOnError)
@@ -62,12 +75,12 @@ func run(args []string) error {
 	fs.BoolVar(&flags.check, "check", false, "self-update: informar la última versión sin instalarla")
 
 	if err := fs.Parse(permute(fs, rest)); err != nil {
-		return err
+		return command{}, cli.Env{}, nil, nil, err
 	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
-		return err
+		return command{}, cli.Env{}, nil, nil, err
 	}
 
 	env := cli.Env{
@@ -77,7 +90,7 @@ func run(args []string) error {
 		ReleaseRepo: os.Getenv("DEAL_KIT_RELEASE_REPO"),
 		AssumeYes:   *yes, DryRun: *dryRun, NoDeps: *noDeps, Here: *here,
 	}
-	return cmd.run(env, fs, &flags)
+	return cmd, env, fs, &flags, nil
 }
 
 // envOr returns the environment variable, or a fallback when it is unset.

@@ -29,6 +29,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -330,7 +331,7 @@ func expectedSum(ctx context.Context, d Download) (string, error) {
 		return "", fmt.Errorf("no se pudo leer %s: %w", d.Checksums, err)
 	}
 	// Standard sha256sum format: "<hex>  <filename>".
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		fields := strings.Fields(strings.TrimSpace(line))
 		if len(fields) != 2 {
 			continue
@@ -529,10 +530,8 @@ func isBinaryEntry(name, want string) bool {
 	if strings.HasPrefix(name, "/") || strings.Contains(name, ":") {
 		return false
 	}
-	for _, part := range strings.Split(name, "/") {
-		if part == ".." {
-			return false
-		}
+	if slices.Contains(strings.Split(name, "/"), "..") {
+		return false
 	}
 	return path.Base(path.Clean(name)) == want
 }

@@ -209,7 +209,7 @@ func TestStatusOmitsTheDetailColumnForAnOrphanWithNoFilesLeft(t *testing.T) {
 	if err := Status(e); err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range strings.Split(out.String(), "\n") {
+	for line := range strings.SplitSeq(out.String(), "\n") {
 		if strings.Contains(line, "HUÉRFANO") && line != strings.TrimRight(line, " ") {
 			t.Errorf("the orphan line has a dangling detail column: %q", line)
 		}

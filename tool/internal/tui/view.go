@@ -133,10 +133,7 @@ func (m Model) listLines() []string {
 		out = append(out, faintText.Render(fmt.Sprintf("   nada coincide con %q", m.filter)))
 	}
 
-	end := m.top + m.height
-	if end > len(rows) {
-		end = len(rows)
-	}
+	end := min(m.top+m.height, len(rows))
 	for i := m.top; i < end; i++ {
 		out = append(out, m.row(rows[i], i == m.cursor))
 	}

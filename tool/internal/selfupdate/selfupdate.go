@@ -128,7 +128,7 @@ func (c *Client) get(url string) ([]byte, error) {
 
 // checksumFor finds a file's hash in a GoReleaser checksums.txt.
 func checksumFor(sums, name string) (string, bool) {
-	for _, line := range strings.Split(sums, "\n") {
+	for line := range strings.SplitSeq(sums, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 2 && fields[1] == name {
 			return fields[0], true

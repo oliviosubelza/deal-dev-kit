@@ -4,6 +4,7 @@ package kit
 
 import (
 	"path"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -107,10 +108,5 @@ func (a Artifact) Supports(pt ProjectType) bool {
 	if len(a.AppliesTo) == 0 {
 		return true
 	}
-	for _, t := range a.AppliesTo {
-		if t == pt {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(a.AppliesTo, pt)
 }

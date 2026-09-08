@@ -235,7 +235,7 @@ func (m BootstrapModel) keyLines(pairs ...string) []string {
 func wrapWords(s string, width int) []string {
 	var lines []string
 	cur := ""
-	for _, word := range strings.Fields(s) {
+	for word := range strings.FieldsSeq(s) {
 		switch {
 		case cur == "":
 			cur = word

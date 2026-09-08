@@ -4,6 +4,7 @@
 package tui
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -599,10 +600,8 @@ func (m *Model) markRequired() {
 }
 
 func appendUnique(ss []string, s string) []string {
-	for _, existing := range ss {
-		if existing == s {
-			return ss
-		}
+	if slices.Contains(ss, s) {
+		return ss
 	}
 	return append(ss, s)
 }

@@ -113,7 +113,7 @@ func version(name string, args []string) string {
 	if err != nil && len(out) == 0 {
 		return ""
 	}
-	line := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 	if m := versionPattern.FindString(line); m != "" {
 		return m
 	}

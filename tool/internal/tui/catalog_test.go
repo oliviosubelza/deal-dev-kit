@@ -65,7 +65,7 @@ func TestRealCatalogIsNavigable(t *testing.T) {
 	// No screen may overflow the terminal width, or the panel border breaks.
 	for _, s := range []screen{screenMenu, screenSkills, screenComponents, screenStatus, screenEngram} {
 		view := ansi.ReplaceAllString(onScreen(model, s).View(), "")
-		for _, line := range strings.Split(view, "\n") {
+		for line := range strings.SplitSeq(view, "\n") {
 			if len([]rune(line)) > 80 {
 				t.Errorf("screen %v: line is %d columns wide, over the 80 available:\n%s",
 					s, len([]rune(line)), line)

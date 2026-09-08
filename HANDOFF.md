@@ -2,7 +2,7 @@
 
 Documento de traspaso. **Sí está versionado**: `git ls-files HANDOFF.md` lo lista y
 no aparece en `.gitignore` (la versión anterior de esta línea afirmaba lo contrario).
-Última actualización: 2026-09-07.
+Última actualización: 2026-09-08.
 
 ---
 
@@ -1101,3 +1101,95 @@ go test ./internal/kit/ -count=1  # ok — kit.yaml no se tocó
 ### Tag
 
 `kit-v*`: cambia `ui-kit/`. `ci.yml` no está bajo `tool/` y no dispara `v*`.
+
+---
+
+## 17. Defecto: la convergencia se reportaba como conflicto y congelaba el update
+
+`classify()` en `tool/internal/plan/plan.go` chequeaba en este orden: no existe →
+`Create`; no está en el lock → `Blocked`; **`current != recorded` → `Blocked`**;
+`current == srcHash` → `Unchanged`; si no → `Overwrite`.
+
+El chequeo del hash del lock corría **antes** que el de igualdad de contenido. Cuando
+alguien arregla un archivo del kit en su proyecto y ese mismo arreglo después sube
+upstream, el archivo en disco queda **byte a byte igual** al que el kit escribiría, pero
+el lock sigue guardando el hash de la versión vieja. Resultado: `Blocked`, con el motivo
+`editado localmente desde que deal-kit lo escribió`.
+
+**Eso no es un conflicto, es convergencia.** No hay nada que sobreescribir y nada que
+perder: los bytes en disco ya son los bytes que el kit quiere.
+
+No es un caso de borde. `skills/web/ui/SKILL.md` le dice explícitamente al equipo que
+arregle el archivo del kit localmente y suba el cambio upstream, así que este estado es
+el **final normal** de ese flujo.
+
+### Era irrecuperable
+
+- No hay flag `--force` ni "adopt" (los flags están en `tool/cmd/deal-kit/main.go:50-57`).
+- `Plan.Apply` se niega a correr mientras haya **cualquier** cosa bloqueada, así que un
+  solo archivo convergido congelaba el update entero, incluidos artefactos que no tenían
+  nada que ver.
+
+Caso real que lo motivó: `C:\SoftwareDevelopment\frontend-crm` (lock en `kit-v0.8.0`)
+tenía `src/shared/ui/scroll-area.tsx` y `src/shared/ui/data-table/DataTable.tsx`
+bloqueados, ambos idénticos a `kit-v0.9.0` módulo CRLF y la reescritura de imports.
+
+### El arreglo
+
+`current == srcHash → Unchanged` pasa **arriba** de `current != recorded → Blocked`. La
+igualdad de contenido le gana a la contabilidad del lock.
+
+### El lock se autocura, con una condición
+
+Cada acción no bloqueada se registra con `Hash: act.hash` (que es `srcHash`) en
+`plan.go:109-111`, y `Apply` reescribe la entrada con ese hash. O sea que el hash viejo
+se corrige solo — **pero solo si `Apply` llega a correr**. `internal/cli/cli.go:298-310`
+corta antes cuando `len(p.Changes()) == 0`, así que un run donde lo único "distinto" es
+el hash rancio imprime `ya está actualizado` y no reescribe el lock. Es inocuo: el plan
+ya dice `Unchanged` y `status` dice `ok`, así que el estado es estable y no bloquea. En
+el caso real —un update de kit que sí trae otros cambios— `Apply` corre y el hash queda
+corregido. Verificado con el binario real, ver abajo.
+
+### Alcance: el branch `!owned` no se tocó
+
+Un archivo que deal-kit **nunca** escribió sigue siendo `Blocked` aunque su contenido
+coincida. Es del proyecto, y esa política es deliberada (§4.2: eso es lo que resolvería
+un `deal-kit adopt`, que sigue pendiente). `TestBlockedWhenAnUnmanagedFileIsInTheWay` lo
+sigue fijando.
+
+### `planRemovals` **no** tiene el mismo problema
+
+`planRemovals` (`plan.go:158-190`) compara `current != old.Hash` y bloquea con
+`reasonRemovedEdited`. Ahí **no hay con qué converger**: el artefacto dejó de producir
+ese archivo, así que no existe un `srcHash` contra el cual comparar. La única referencia
+posible es lo que deal-kit escribió la última vez, que es exactamente lo que ya compara.
+No se cambió, y no hay reordenamiento análogo que hacer.
+
+### Tests
+
+| Test | Sin la corrección |
+|---|---|
+| `plan.TestAConvergedFileIsUnchangedEvenWhenTheLockIsStale` | `kind = "blocked" (editado localmente desde que deal-kit lo escribió), want unchanged` |
+| `plan.TestApplyRewritesTheStaleHashOfAConvergedFile` | `1 archivo(s) requieren atención antes de aplicar` |
+
+### Verificación
+
+`gofmt -l .` sin salida · `go vet ./...` limpio · `go test ./... -count=1` 12/12 ·
+goldens de la TUI regenerados **sin diff** (el cambio es de clasificación, no de
+renderizado, y ningún golden fija un archivo convergido).
+
+Binario real contra un proyecto scratch (`/tmp/conv-proj`, perfil `web`, `--kit-dir` al
+working tree) con el hash de `src/shared/lib/utils.ts` corrompido a mano en el lock para
+reproducir la convergencia:
+
+```
+deal-kit-old status → ui-kit/base  MODIFICADO  src/shared/lib/utils.ts
+deal-kit     status → ui-kit/base  ok
+```
+
+Y con otro cambio en el mismo run (para que `Apply` corra), el lock volvió al hash
+correcto solo.
+
+### Tag
+
+`v*` únicamente: el cambio vive entero bajo `tool/`.

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,5 +154,38 @@ func TestKitErrorDoesNotInventAPath(t *testing.T) {
 	// Naming a sibling directory that may not exist makes the user chase it.
 	if strings.Contains(err.Error(), "cd ../") {
 		t.Errorf("the message suggests a directory it cannot know exists:\n%s", err)
+	}
+}
+
+func TestConfirmReadsAYesOrNoAnswer(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{"lowercase y", "y\n", true},
+		{"full yes", "yes\n", true},
+		{"uppercase Y", "Y\n", true},
+		{"n", "n\n", false},
+		{"anything else", "nope\n", false},
+		{"bare EOF, no input at all", "", false},
+		{"empty line", "\n", false},
+		{"y with no trailing newline", "y", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			e := Env{Stdout: &out, Stdin: strings.NewReader(tt.input)}
+			got, err := confirm(e, "¿continuar?")
+			if err != nil {
+				t.Fatalf("confirm() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("confirm(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+			if !strings.Contains(out.String(), "¿continuar?") {
+				t.Errorf("the question was never written to Stdout: %q", out.String())
+			}
+		})
 	}
 }

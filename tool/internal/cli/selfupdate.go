@@ -8,6 +8,18 @@ import (
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/selfupdate"
 )
 
+// newSelfupdateClient and replaceBinary are indirected the same way as the
+// engram entry points in interactive.go. newSelfupdateClient lets a test point
+// SelfUpdate at a local server instead of the real GitHub API; replaceBinary
+// keeps a test that reaches the genuine-update path from ever invoking the
+// real file-replace machinery against the test binary itself — os.Executable
+// inside a `go test` run resolves to the compiled test binary, and actually
+// renaming that mid-run would be catastrophic, not a simplification.
+var (
+	newSelfupdateClient = selfupdate.New
+	replaceBinary       = selfupdate.Replace
+)
+
 // SelfUpdate replaces this binary with the newest published release.
 // With check set, it only reports what is available.
 func SelfUpdate(e Env, check bool) error {
@@ -21,7 +33,7 @@ func SelfUpdate(e Env, check bool) error {
 		exe = resolved
 	}
 
-	c := selfupdate.New(e.ReleaseRepo)
+	c := newSelfupdateClient(e.ReleaseRepo)
 	release, err := c.Latest()
 	if err != nil {
 		return err
@@ -52,7 +64,7 @@ func SelfUpdate(e Env, check bool) error {
 	if err != nil {
 		return err
 	}
-	if err := selfupdate.Replace(exe, binary); err != nil {
+	if err := replaceBinary(exe, binary); err != nil {
 		return err
 	}
 	fmt.Fprintf(e.Stdout, "  actualizado %s → %s\n  en          %s\n", current, release.Version, exe)

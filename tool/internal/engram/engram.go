@@ -723,7 +723,17 @@ func Apply(ctx context.Context, r Runner, look Lookup, p Plan, live io.Writer) O
 	for _, step := range p.Steps() {
 		if err := ctx.Err(); err != nil {
 			s := step
-			o.Failed, o.Err = &s, budgetErr(err, step, prev, prevTook)
+			// Same distinction the mid-step site below makes, for the same
+			// reason: only a deadline is an exhausted budget. A Ctrl+C
+			// arriving between steps ends the same shared context, and since
+			// budgetErr now synthesizes a message even when there is no
+			// previous step to blame, wrapping unconditionally would tell the
+			// user a step "no terminó a tiempo" that never started.
+			failure := err
+			if errors.Is(err, context.DeadlineExceeded) {
+				failure = budgetErr(err, step, prev, prevTook)
+			}
+			o.Failed, o.Err = &s, failure
 			o.Status = detectFresh(ctx, r, look)
 			return o
 		}

@@ -1395,3 +1395,37 @@ de una aparecían bajo los pies de la otra. Para trabajo en paralelo, un
 en verde.
 
 **Tag:** `kit-v*` por el cambio en `skills/`, `v*` por el cambio en `tool/`.
+
+## 20. Regresión del PR #31: un Ctrl+C se reportaba como presupuesto agotado
+
+El PR #31 cambió `budgetErr` para que la rama `prev == nil` —que antes devolvía
+el error tal cual— sintetice siempre *"no quedó presupuesto … no terminó a
+tiempo"*. En el mismo PR se agregó el guard de `DeadlineExceeded`, pero **solo en
+el sitio mid-step** (`engram.go:741`). El chequeo del tope del loop
+(`engram.go:724`) quedó envolviendo sin condición.
+
+`internal/cli/interactive.go:250` arma un solo contexto con `signal.NotifyContext`
+(SIGINT/SIGTERM) **y** `context.WithTimeout`. O sea que un Ctrl+C entre pasos
+llegaba al chequeo del tope del loop y el usuario leía que un paso *"no terminó a
+tiempo"* cuando ese paso nunca había arrancado. El comentario del sitio hermano
+ya decía textualmente lo contrario: *"a Ctrl+C cancels the same shared context
+and must not be reported as an exhausted budget"*.
+
+`TestACancelledContextRunsNothing` no lo cazó porque solo asertaba
+`errors.Is(out.Err, context.Canceled)`, y eso sigue siendo cierto: `budgetErr`
+envuelve con `%w`. El mensaje mentía, el unwrap no.
+
+| Qué se corrigió | Cómo |
+|---|---|
+| `engram.go:724` | mismo guard que el sitio mid-step: solo un deadline es presupuesto agotado |
+| `TestAnExhaustedBudgetNamesTheStepThatSpentIt` | simulaba el deadline con un `cancel()`. Ahora usa `context.WithTimeout` real y el nuevo helper `starveAfterMutation`, que espera `ctx.Done()` en vez de competir con el timer — determinista. Su aserción final ahora espera `DeadlineExceeded`, que es lo que un presupuesto agotado realmente es |
+| Test nuevo | `TestACancellationBetweenStepsIsNotReportedAsABudgetFailure`, hermano del que ya cubría el sitio mid-step |
+
+**Lección:** un test que aserta solo el `errors.Is` no protege el mensaje, y acá
+el mensaje era el producto. Y simular un deadline con un `cancel()` hace que el
+test pase por un camino que ningún usuario recorre.
+
+**Verificación:** el test nuevo falla sin el fix y pasa con él; suite completa en
+verde.
+
+**Tag:** `v*`.

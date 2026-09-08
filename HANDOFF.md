@@ -1250,3 +1250,115 @@ Binario real (`/tmp/deal-kit`, `--kit-dir` al working tree) contra
 el test nuevo `repo_conventions_test.go` lo dispara; por el propósito del namespace
 ("builds binaries") no, porque un archivo de test no cambia el binario que se publica.
 **Decisión del dueño**: cortar solo `kit-v*`, o los dos por prolijidad del gate.
+
+---
+
+## 19. `repo_skills_test.go`: la prosa de las skills ahora se valida contra el código
+
+`kit.yaml` está protegido por `repo_manifest_test.go` desde el principio. La prosa de
+`skills/` no tenía **nada** equivalente, y derivó dos veces:
+
+1. El catálogo original nombraba tres exports que no existen: `PortalContainer`,
+   `Chart`, `Resizable` (§6).
+2. `skills/web/ui/SKILL.md` afirmaba que el catálogo corre sobre Radix. Es falso: 26
+   archivos importan `@base-ui/react`, 4 usan Radix como primitivo real y 4 solo le
+   sacan el `Slot`. Corregido en `ce7764b`.
+
+La primera Hard Rule de la skill `deal-kit-maintenance` ("nunca documentar un símbolo,
+path o export sin greppearlo en el fuente") existe por esto, pero era una regla que solo
+se cumplía si el que escribía se acordaba. Ahora hay un test.
+
+### Qué hace
+
+`tool/internal/kit/repo_skills_test.go` →
+`TestSkillsOnlyNameRealKitExports`. Lee los `SKILL.md` **reales** del repo y falla
+cuando uno nombra un componente que ningún fuente del `ui-kit` exporta.
+
+La lista de exports **se deriva del código en cada corrida** — `export { ... }` y
+`export function/const/type/interface/...` sobre `ui-kit/**/*.ts(x)`, salteando
+`node_modules`. Hardcodearla recrearía exactamente el problema que el test evita.
+
+Va en `internal/kit` por precedente, no por la tabla "New code goes in" de la skill: esa
+tabla cubre código de producto (decide un sync → `plan`, lee/escribe el proyecto →
+`cli`, renderiza → `tui`). Esto no es ninguna de las tres: es validación de contenido del
+repo, y el único test de esa clase que ya existe —`repo_manifest_test.go`— vive acá, con
+la misma forma de ubicar la raíz (`filepath.Join("..", "..", "..")`).
+
+### Alcance deliberado: dos regiones estructuradas, no toda la prosa
+
+Solo se extraen símbolos de:
+
+1. las filas de una tabla cuyo header es exactamente `| Need | Use |` (el catálogo), y
+2. la sección titulada `Critical composition rules`.
+
+Y dentro de esas regiones, solo un code span que sea **entero** una palabra PascalCase
+(`^[A-Z][A-Za-z0-9]*$`).
+
+**El criterio es señal sobre ruido, no cobertura.** Los backticks de estas skills
+envuelven muchísimo que no es un export: paths (`shared/ui/button.tsx`), clases CSS
+(`bg-primary`, `size-10`), paquetes npm (`@base-ui/react`), props (`selectable?`),
+comandos (`deal-kit add`), elementos HTML (`<select>`), tokens de Tailwind y fragmentos
+de código. Un test que los marque se silencia o se borra en una semana. La regla estricta
+los descarta a todos por construcción: ninguno es una sola palabra PascalCase.
+
+Medido: **125 símbolos chequeados, 0 falsos positivos, allowlist vacía.** `nonKitSymbols`
+existe declarada y vacía, con el comentario de que crecer más de un puñado de entradas
+significa que la regla de extracción quedó demasiado ancha y hay que angostarla, no
+rellenar la lista.
+
+Las dos regiones se detectan por **estructura, no por nombre de archivo**. Por eso las
+skills de móvil no producen fallas: `crm-deal-mobile` usa React Native Paper, esos
+componentes no están en este repo, y ninguna skill de móvil tiene tabla `| Need | Use |`
+ni sección de composition rules. Verificado: se recorren los 10 `SKILL.md` y solo
+`web/ui` aporta símbolos.
+
+### Qué NO agarra
+
+Hay que ser honesto con esto, porque el test da una sensación de cobertura mayor que la
+que tiene:
+
+- **La clase de error de Radix (el defecto #2 de arriba) NO la agarraría.** "Está
+  construido sobre Radix" es una afirmación en prosa sobre de qué librería depende un
+  componente. `Accordion` existe y se exporta; el símbolo está bien y la afirmación
+  está mal. Un test de símbolos no puede verlo.
+- Nada fuera de las dos regiones: el catálogo de props del `DataTable`, los ejemplos
+  `tsx`, la sección `What NOT to do`, y toda la prosa del resto de las skills.
+- Los identificadores camelCase (`defineColumns`, `useIsMobile`, `cn`) y los que llevan
+  guión bajo (`DEFAULT_DATA_TABLE_LABELS`): son exports reales, pero admitirlos abriría
+  la puerta a las props y a los nombres de hooks inventados en cualquier ejemplo. Se
+  eligió perder un error real antes que producir uno falso.
+- Que un componente exista **no** prueba que la fila del catálogo lo describa bien.
+
+Dos guardas contra el fallo silencioso, porque un extractor que deja de matchear haría
+pasar el test encontrando cero: falla si parsea menos de 100 exports del `ui-kit`, y
+falla si no extrae ni un símbolo de ningún `SKILL.md`.
+
+### CI
+
+**Ya corre, sin cablear nada.** El job `tool` de `.github/workflows/ci.yml` hace
+`actions/checkout` del repo completo y corre `go test ./...` desde `tool/`; el
+`working-directory` solo afecta a los `run`, no al checkout. Los paths relativos
+(`../../../skills`, `../../../ui-kit`) resuelven igual que en local. No necesita
+`ui-kit/node_modules` (que en CI solo existe en el otro job): el walk lo saltea.
+
+### Verificación
+
+`gofmt -l .` sin salida · `go vet ./...` limpio · `go test ./... -count=1` 12/12 ·
+goldens de la TUI sin tocar (no hay cambio de renderizado).
+
+Probado al revés, sembrando los dos errores históricos y corriendo el test:
+
+```
+skills/web/ui/SKILL.md:125: the component catalog table names "PortalContainer",
+    which no ui-kit source exports.
+skills/web/ui/SKILL.md:136: the Critical composition rules section names "Resizable",
+    which no ui-kit source exports.
+```
+
+Cada mensaje nombra el archivo, la línea, la región, el símbolo, dónde se esperaba
+encontrarlo (`ui-kit/components/ui/*.ts(x)`, …) y qué hacer si el nombre es legítimo.
+La siembra se revirtió; `git diff` de `skills/` quedó vacío.
+
+### Tag
+
+`v*` únicamente: el cambio vive entero bajo `tool/`. No cambia contenido del kit.

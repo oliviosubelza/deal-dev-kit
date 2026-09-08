@@ -23,11 +23,13 @@ fix: mask phone numbers in the audit log
 docs: document the filter contract
 ```
 
-An AI agent ends its commits with a `Co-Authored-By` trailer, so the history shows what wrote the change:
+A commit is authored by the person who owns the change, and by nobody else. **Never add a `Co-Authored-By` trailer for an AI agent, and never add any other AI attribution** — not in the commit message, not in the PR description, not in a code comment.
 
 ```
-Co-Authored-By: Claude <noreply@anthropic.com>
+Co-Authored-By: Claude <noreply@anthropic.com>   ← never
 ```
+
+The history records who is accountable for the change, which is always a person. Which tools they used to write it is not what a trailer is for, and a machine address in the log makes `git log --author` and `git blame` answer the wrong question.
 
 ## Zod is the single source of truth
 

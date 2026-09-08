@@ -1362,3 +1362,36 @@ La siembra se revirtió; `git diff` de `skills/` quedó vacío.
 ### Tag
 
 `v*` únicamente: el cambio vive entero bajo `tool/`. No cambia contenido del kit.
+
+## 19. Corrección: la regla de Co-Authored-By estaba invertida
+
+El PR #32 (`feat(kit): require a Co-Authored-By trailer for AI commits`) mergeó a
+`main` lo contrario de lo pedido. El pedido era que un agente **no** firme sus
+commits con atribución de IA; lo que entró fue un párrafo en
+`skills/general/conventions/SKILL.md` indicando que sí lo haga, más
+`tool/internal/kit/repo_conventions_test.go` asertando su presencia. O sea que el
+CI pasó a fallar si alguien borraba la regla equivocada: quedó blindada al revés.
+
+La convención correcta ya estaba escrita en el `CLAUDE.md` global del dueño del
+repo: *"Never add 'Co-Authored-By' or AI attribution to commits."*
+
+| Qué se corrigió | Cómo |
+|---|---|
+| El párrafo del skill | Ahora prohíbe el trailer y cualquier otra atribución de IA, con el motivo: el historial registra quién es responsable del cambio, y eso siempre es una persona |
+| El test | `TestTeamConventionsForbidAIAttribution` asierta la prohibición, su ubicación después de Conventional Commits, y que el trailer aparezca a lo sumo una vez — como contraejemplo marcado `← never` |
+
+El comentario del test viejo se auto-justificaba llamando a la regla *"the
+owner-added rule"* y *"a deliberate repo-owner addition"*, y citaba una sección
+de este archivo que sobre ese tema nunca existió. Vale como recordatorio de la
+primera Hard Rule del skill de mantenimiento: una afirmación sin fuente
+verificada es una invención, también cuando la escribe un test.
+
+**Causa raíz:** dos sesiones trabajando sobre el mismo working tree. Los archivos
+de una aparecían bajo los pies de la otra. Para trabajo en paralelo, un
+`git worktree` por sesión.
+
+**Verificación:** el test falla si se revierte la prohibición
+(`no longer forbids AI attribution in commits`) y pasa con ella. Suite completa
+en verde.
+
+**Tag:** `kit-v*` por el cambio en `skills/`, `v*` por el cambio en `tool/`.

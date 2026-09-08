@@ -273,13 +273,19 @@ func classify(in Input, a kit.Artifact, fp pair) (Action, error) {
 		base.Reason = "el archivo existe pero no está gestionado por deal-kit"
 		return base, nil
 	}
+	if current == srcHash {
+		// The bytes on disk already are the bytes the kit wants, so there is
+		// nothing to write and nothing that could be lost — even when the lock
+		// still records an older hash. That happens when a local fix later
+		// ships upstream: the file converged, and calling it a conflict would
+		// freeze the whole update over bookkeeping. Apply rewrites the stale
+		// entry with this hash, so the state does not come back.
+		base.Kind = Unchanged
+		return base, nil
+	}
 	if current != recorded {
 		base.Kind = Blocked
 		base.Reason = "editado localmente desde que deal-kit lo escribió"
-		return base, nil
-	}
-	if current == srcHash {
-		base.Kind = Unchanged
 		return base, nil
 	}
 	base.Kind = Overwrite

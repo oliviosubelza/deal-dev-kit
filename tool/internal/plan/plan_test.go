@@ -269,6 +269,81 @@ func TestBlockedWhenAManagedFileWasEditedLocally(t *testing.T) {
 	}
 }
 
+func TestAConvergedFileIsUnchangedEvenWhenTheLockIsStale(t *testing.T) {
+	kitDir, projectDir := fixture(t, map[string]string{
+		"ui-kit/lib/utils.ts": "export const cn = 1\n",
+	})
+	lock := &lockfile.File{Roots: roots}
+	first, _ := Build(Input{Artifacts: []kit.Artifact{componentArtifact()},
+		Lock: lock, KitDir: kitDir, ProjectDir: projectDir, Roots: roots})
+	if err := first.Apply(projectDir, lock); err != nil {
+		t.Fatal(err)
+	}
+
+	// Someone fixes the file locally, and the very same fix later ships in the
+	// kit: on-disk content and kit content converge, but the lock still holds
+	// the hash of the version deal-kit originally wrote.
+	fixed := "export const cn = 2\n"
+	local := filepath.Join(projectDir, "src", "shared", "lib", "utils.ts")
+	if err := os.WriteFile(local, []byte(fixed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "ui-kit", "lib", "utils.ts"), []byte(fixed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if recorded, _ := lock.RecordedHash("src/shared/lib/utils.ts"); recorded == lockfile.Hash([]byte(fixed)) {
+		t.Fatal("the lock must still record the older hash for this test to mean anything")
+	}
+
+	p, err := Build(Input{Artifacts: []kit.Artifact{componentArtifact()},
+		Lock: lock, KitDir: kitDir, ProjectDir: projectDir, Roots: roots})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k, r := kindOf(p, "src/shared/lib/utils.ts"); k != Unchanged {
+		t.Fatalf("kind = %q (%s), want unchanged: the file already equals what the kit would write", k, r)
+	}
+	if len(p.Blocked()) != 0 {
+		t.Errorf("convergence blocked the plan: %v", p.Blocked())
+	}
+}
+
+func TestApplyRewritesTheStaleHashOfAConvergedFile(t *testing.T) {
+	kitDir, projectDir := fixture(t, map[string]string{
+		"ui-kit/lib/utils.ts": "export const cn = 1\n",
+	})
+	lock := &lockfile.File{Roots: roots}
+	first, _ := Build(Input{Artifacts: []kit.Artifact{componentArtifact()},
+		Lock: lock, KitDir: kitDir, ProjectDir: projectDir, Roots: roots})
+	if err := first.Apply(projectDir, lock); err != nil {
+		t.Fatal(err)
+	}
+
+	fixed := "export const cn = 2\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "src", "shared", "lib", "utils.ts"), []byte(fixed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "ui-kit", "lib", "utils.ts"), []byte(fixed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(Input{Artifacts: []kit.Artifact{componentArtifact()},
+		Lock: lock, KitDir: kitDir, ProjectDir: projectDir, Roots: roots})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Apply(projectDir, lock); err != nil {
+		t.Fatal(err)
+	}
+	recorded, owned := lock.RecordedHash("src/shared/lib/utils.ts")
+	if !owned {
+		t.Fatal("the file stopped being owned after applying")
+	}
+	if want := lockfile.Hash([]byte(fixed)); recorded != want {
+		t.Fatalf("recorded hash = %q, want %q: the stale entry must self-heal", recorded, want)
+	}
+}
+
 func TestBlockedWhenAnUnmanagedFileIsInTheWay(t *testing.T) {
 	kitDir, projectDir := fixture(t, map[string]string{
 		"ui-kit/lib/utils.ts": "export const cn = 1\n",

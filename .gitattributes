@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+*.go text eol=lf
+tool/internal/tui/testdata/*.golden text eol=lf

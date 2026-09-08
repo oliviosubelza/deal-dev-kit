@@ -65,7 +65,7 @@ const (
 // the line but is not it.
 func hasLine(content []byte, line string) bool {
 	want := strings.TrimSpace(line)
-	for _, got := range strings.Split(string(content), "\n") {
+	for got := range strings.SplitSeq(string(content), "\n") {
 		if strings.TrimSpace(got) == want {
 			return true
 		}

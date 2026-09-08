@@ -107,7 +107,7 @@ func TestRewriteLeavesBinaryContentAlone(t *testing.T) {
 func TestRewriteIsDeterministic(t *testing.T) {
 	in := []byte(`import { Button } from "@/components/ui/button"`)
 	first := string(newRewriter(webRules).apply(in))
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		if got := string(newRewriter(webRules).apply(in)); got != first {
 			t.Fatalf("map iteration order leaked: %q vs %q", got, first)
 		}

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -117,6 +118,9 @@ func TestChecksumForPicksTheRightLine(t *testing.T) {
 }
 
 func TestReplaceSwapsTheBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("NTFS does not track a POSIX execute permission bit")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "deal-kit")
 	if err := os.WriteFile(path, []byte("old"), 0o755); err != nil {
@@ -162,6 +166,9 @@ func TestReplaceLeavesNoStagingFilesBehind(t *testing.T) {
 }
 
 func TestReplaceOnAnUnwritableDirectoryKeepsTheOldBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only directory attribute on NTFS does not block writes the way a POSIX mode does")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: permissions do not apply")
 	}

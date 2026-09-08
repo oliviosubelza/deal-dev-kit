@@ -2,8 +2,10 @@ package kit
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -46,12 +48,7 @@ type rawEnsureLine struct {
 var supportedManifestVersions = []int{1, 2}
 
 func supportedManifestVersion(v int) bool {
-	for _, supported := range supportedManifestVersions {
-		if v == supported {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(supportedManifestVersions, v)
 }
 
 func supportedManifestVersionList() string {
@@ -278,9 +275,7 @@ func (m *Manifest) MatchProjectType(repoName string) (ProjectType, bool) {
 func NPMDeps(artifacts []Artifact) map[string]string {
 	deps := make(map[string]string)
 	for _, a := range artifacts {
-		for name, rng := range a.NPM {
-			deps[name] = rng
-		}
+		maps.Copy(deps, a.NPM)
 	}
 	return deps
 }

@@ -148,7 +148,7 @@ func TestEnsureLineConvergesAcrossRepeatedRuns(t *testing.T) {
 	write(t, projectDir, "CLAUDE.md", "# CRM DEAL\n")
 	lock := &lockfile.File{Roots: roots}
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		p := buildPersona(t, kitDir, projectDir, lock)
 		if err := p.Apply(projectDir, lock); err != nil {
 			t.Fatalf("run %d: %v", i, err)

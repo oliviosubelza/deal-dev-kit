@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,28 @@ import (
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/doctor"
 	"github.com/oliviosubelza/deal-dev-kit/tool/internal/kit"
 )
+
+// doctorCheck is indirected the same way as the engram entry points in
+// interactive.go, so New and Doctor are testable without depending on which
+// external tools are actually installed on the machine running the suite.
+var doctorCheck = doctor.Check
+
+// generatorRunner runs the project generator command. A package-level var, so
+// a test can substitute it — the same pattern interactive.go already uses for
+// the engram install flow (engramRunner/engramApply/engramLook).
+type generatorRunner interface {
+	Run(dir string, stdout, stderr io.Writer, stdin io.Reader, name string, args ...string) error
+}
+
+type execGeneratorRunner struct{}
+
+func (execGeneratorRunner) Run(dir string, stdout, stderr io.Writer, stdin io.Reader, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Dir, cmd.Stdout, cmd.Stderr, cmd.Stdin = dir, stdout, stderr, stdin
+	return cmd.Run()
+}
+
+var newRunner generatorRunner = execGeneratorRunner{}
 
 // generator is the official command that scaffolds one project type.
 //
@@ -96,7 +119,7 @@ func New(e Env, dir, typeOverride string) error {
 
 	// Check the toolchain before creating anything: a missing pnpm should be
 	// reported here, not as a generator failing with a directory half made.
-	report := doctor.Check(doctor.ForWeb())
+	report := doctorCheck(doctor.ForWeb())
 	renderDoctor(e.Stdout, report)
 	if !report.OK() {
 		return fmt.Errorf("instalar la(s) herramienta(s) faltante(s) y volver a ejecutar")
@@ -132,10 +155,7 @@ func New(e Env, dir, typeOverride string) error {
 		}
 	}
 
-	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Dir = e.Cwd
-	cmd.Stdout, cmd.Stderr, cmd.Stdin = e.Stdout, e.Stderr, e.Stdin
-	if err := cmd.Run(); err != nil {
+	if err := newRunner.Run(e.Cwd, e.Stdout, e.Stderr, e.Stdin, args[0], args[1:]...); err != nil {
 		return fmt.Errorf("%s falló: %w", args[0], err)
 	}
 
@@ -148,7 +168,7 @@ func New(e Env, dir, typeOverride string) error {
 
 // Doctor reports the state of the local toolchain.
 func Doctor(e Env) error {
-	report := doctor.Check(doctor.ForWeb())
+	report := doctorCheck(doctor.ForWeb())
 	renderDoctor(e.Stdout, report)
 	if !report.OK() {
 		return fmt.Errorf("faltan %d herramienta(s) requerida(s)", len(report.Missing()))

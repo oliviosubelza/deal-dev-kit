@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -391,10 +392,8 @@ func lockIDs(lock *lockfile.File) []string {
 }
 
 func appendUnique(ss []string, s string) []string {
-	for _, existing := range ss {
-		if existing == s {
-			return ss
-		}
+	if slices.Contains(ss, s) {
+		return ss
 	}
 	return append(ss, s)
 }

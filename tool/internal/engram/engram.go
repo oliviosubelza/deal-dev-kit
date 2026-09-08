@@ -730,6 +730,17 @@ func Apply(ctx context.Context, r Runner, look Lookup, p Plan, live io.Writer) O
 		started := time.Now()
 		if err := runStep(ctx, r, look, claudePath, step, live); err != nil {
 			s := step
+			// A step whose own execution outlives InstallTimeout is killed
+			// mid-flight by exec.CommandContext — the loop's ctx.Err() check
+			// above never gets a turn, since the step that is running IS the
+			// one that ran out of time. Without this, the step most likely to
+			// actually be slow (go install, always first per planFor) is the
+			// one budgetErr can never name. Scoped to DeadlineExceeded only:
+			// a Ctrl+C cancels the same shared context and must not be
+			// reported as an exhausted budget.
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				err = budgetErr(err, step, prev, prevTook)
+			}
 			o.Failed, o.Err = &s, err
 			// Re-query even on failure: `marketplace add` can succeed and
 			// `install` fail, and the user needs to know the marketplace is
@@ -764,7 +775,10 @@ func Apply(ctx context.Context, r Runner, look Lookup, p Plan, live io.Writer) O
 // wrapped, so errors.Is against context.DeadlineExceeded still answers.
 func budgetErr(err error, step Step, prev *Step, took time.Duration) error {
 	if prev == nil {
-		return err
+		// Nothing ran before this step, or this step is the one that ran out
+		// of time itself: either way there is no other step to blame.
+		return fmt.Errorf("no quedó presupuesto (%s en total): `%s` no terminó a tiempo: %w",
+			InstallTimeout, step.Line(), err)
 	}
 	return fmt.Errorf("no quedó presupuesto (%s en total) para `%s`: lo consumió `%s`, que tardó %s: %w",
 		InstallTimeout, step.Line(), prev.Line(), took.Round(time.Second), err)

@@ -971,6 +971,83 @@ func TestTheFinalRecheckDoesNotInheritAnExhaustedBudget(t *testing.T) {
 	}
 }
 
+func TestAStepThatOutlivesTheBudgetIsNamedByBudgetErr(t *testing.T) {
+	// go install is the step most likely to actually be slow (planFor always
+	// puts the binary step first), and it is a plain external command: when
+	// InstallTimeout elapses while it is still running, exec.CommandContext
+	// kills it mid-flight. budgetErr exists so that failure reads as "ran out
+	// of the shared install budget" instead of a bare context error.
+	line := strings.Join(GoInstallArgs(), " ")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	f := &blockingUntilDone{fakeRunner: newFake(nil), target: line}
+	st := Status{State: StateMarketplaceMissing, ClaudePath: "/fake/bin/claude", GoPath: "/fake/bin/go"}
+	// Forced to windows: go install is only preferred there (see
+	// TestGoInstallIsPreferredWhenTheToolchainIsThere). PlanFor's real
+	// runtime.GOOS would pick the download step on Linux/macOS CI instead,
+	// which isn't mediated by the fake Runner at all and reaches the network.
+	out := Apply(ctx, f, found, planFor("windows", "amd64", st), nil)
+
+	if out.Err == nil {
+		t.Fatal("a step killed by the shared timeout was reported as success")
+	}
+	if out.Failed == nil || out.Failed.Kind != StepGoInstall {
+		t.Fatalf("Failed = %v, want the go install step", out.Failed)
+	}
+	if !strings.Contains(out.Err.Error(), "no quedó presupuesto") {
+		t.Errorf("the timed-out step was not named by budgetErr: %v", out.Err)
+	}
+	if !errors.Is(out.Err, context.DeadlineExceeded) {
+		t.Errorf("the failure does not surface why the step died: %v", out.Err)
+	}
+}
+
+func TestAnExplicitlyCancelledStepIsNotReportedAsABudgetFailure(t *testing.T) {
+	// Ctrl+C cancels the same shared context (see internal/cli's
+	// engramInstallContext), and that is a deliberate user action, not an
+	// exhausted budget — the two must not read the same in the error.
+	line := strings.Join(GoInstallArgs(), " ")
+	ctx, cancel := context.WithCancel(context.Background())
+
+	f := &blockingUntilDone{fakeRunner: newFake(nil), target: line, cancelSelf: cancel}
+	st := Status{State: StateMarketplaceMissing, ClaudePath: "/fake/bin/claude", GoPath: "/fake/bin/go"}
+	// Forced to windows for the same reason as the test above.
+	out := Apply(ctx, f, found, planFor("windows", "amd64", st), nil)
+
+	if out.Err == nil {
+		t.Fatal("a cancelled step was reported as success")
+	}
+	if strings.Contains(out.Err.Error(), "no quedó presupuesto") {
+		t.Errorf("an explicit cancellation was reported as a budget failure: %v", out.Err)
+	}
+	if !errors.Is(out.Err, context.Canceled) {
+		t.Errorf("the failure does not surface why the step died: %v", out.Err)
+	}
+}
+
+// blockingUntilDone simulates what exec.CommandContext does to a subprocess
+// that is still running when ctx ends: it blocks until ctx is done and then
+// reports the failure a killed process leaves behind. cancelSelf, when set,
+// is called before blocking, modelling a SIGINT that cancels ctx from the
+// outside rather than a deadline elapsing on its own.
+type blockingUntilDone struct {
+	*fakeRunner
+	target     string
+	cancelSelf context.CancelFunc
+}
+
+func (b *blockingUntilDone) RunStream(ctx context.Context, w io.Writer, name string, args ...string) error {
+	if commandLine(name, args) == b.target {
+		if b.cancelSelf != nil {
+			b.cancelSelf()
+		}
+		<-ctx.Done()
+		return &CommandError{Args: append([]string{name}, args...), Err: ctx.Err()}
+	}
+	return b.fakeRunner.RunStream(ctx, w, name, args...)
+}
+
 // cancelAfterMutation burns the context the moment the mutation completes.
 type cancelAfterMutation struct {
 	*installFake

@@ -95,7 +95,7 @@ func latestKitTag(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if tag := strings.TrimSpace(line); tag != "" {
 			return tag, nil
 		}

@@ -111,7 +111,7 @@ func TestInstallArgs(t *testing.T) {
 func TestInstallArgsIsDeterministic(t *testing.T) {
 	deps := map[string]string{"z": "1", "a": "2", "m": "3"}
 	first := strings.Join(InstallArgs(PNPM, deps), " ")
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		if got := strings.Join(InstallArgs(PNPM, deps), " "); got != first {
 			t.Fatalf("map iteration leaked into the command: %q vs %q", got, first)
 		}

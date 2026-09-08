@@ -702,6 +702,40 @@ func TestACancelledContextRunsNothing(t *testing.T) {
 	}
 }
 
+func TestACancellationBetweenStepsIsNotReportedAsABudgetFailure(t *testing.T) {
+	// Sibling of TestAnExplicitlyCancelledStepIsNotReportedAsABudgetFailure,
+	// for the other call site: that one covers a step killed mid-flight, this
+	// one covers the loop-top ctx.Err() check, which is what a Ctrl+C between
+	// steps hits. Both share one context (see internal/cli's
+	// engramInstallContext), so both have to tell a deadline apart from a
+	// deliberate interruption.
+	f := &installFake{
+		fakeRunner: newFake(map[string]reply{
+			strings.Join(MarketplaceAddArgs(), " "): {},
+			strings.Join(PluginInstallArgs(), " "):  {},
+		}),
+		markets: noMarketplaces, plugins: noPlugins,
+	}
+	p := PlanFor(Status{State: StateMarketplaceMissing, EngramPath: "/bin/engram"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	out := Apply(ctx, f, found, p, nil)
+
+	if out.Err == nil {
+		t.Fatal("a cancelled run was reported as success")
+	}
+	if strings.Contains(out.Err.Error(), "no quedó presupuesto") {
+		t.Errorf("an explicit cancellation was reported as an exhausted budget: %v", out.Err)
+	}
+	if strings.Contains(out.Err.Error(), "no terminó a tiempo") {
+		t.Errorf("a step that never started was reported as having timed out: %v", out.Err)
+	}
+	if !errors.Is(out.Err, context.Canceled) {
+		t.Errorf("the failure does not surface why the run died: %v", out.Err)
+	}
+}
+
 // --- end to end, against simulated executables ---
 
 // fakeClaude writes a claude executable into a temporary directory and returns
@@ -1048,6 +1082,28 @@ func (b *blockingUntilDone) RunStream(ctx context.Context, w io.Writer, name str
 	return b.fakeRunner.RunStream(ctx, w, name, args...)
 }
 
+// starveAfterMutation models the real shape of an exhausted budget: the first
+// step completes its mutation and then eats the rest of the clock, the way a
+// slow download starves whatever runs next. It waits on ctx.Done() instead of
+// racing the timer, so the deadline has always elapsed by the time Apply looks
+// — deterministic, unlike cancelling and calling that a timeout.
+type starveAfterMutation struct {
+	*installFake
+}
+
+func (s *starveAfterMutation) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return s.installFake.Run(ctx, name, args...)
+}
+
+func (s *starveAfterMutation) RunStream(ctx context.Context, w io.Writer, name string, args ...string) error {
+	err := s.installFake.RunStream(ctx, w, name, args...)
+	<-ctx.Done()
+	return err
+}
+
 // cancelAfterMutation burns the context the moment the mutation completes.
 type cancelAfterMutation struct {
 	*installFake
@@ -1136,8 +1192,12 @@ func TestAnExhaustedBudgetNamesTheStepThatSpentIt(t *testing.T) {
 		}),
 		markets: noMarketplaces, plugins: noPlugins,
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	spent := &cancelAfterMutation{installFake: f, cancel: cancel}
+	// A real deadline, not a cancellation: only a deadline is an exhausted
+	// budget, and Apply now tells the two apart (a Ctrl+C shares this same
+	// context). Simulating one with cancel() would test a path users never hit.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	spent := &starveAfterMutation{installFake: f}
 
 	out := Apply(ctx, spent, found,
 		PlanFor(Status{State: StateMarketplaceMissing, EngramPath: "/bin/engram"}), nil)
@@ -1156,9 +1216,10 @@ func TestAnExhaustedBudgetNamesTheStepThatSpentIt(t *testing.T) {
 		t.Errorf("the error does not name the step that was starved:\n%v", msg)
 	}
 	// Wrapped, not replaced: the callers that ask what kind of failure it was
-	// must keep getting an answer.
-	if !errors.Is(out.Err, context.Canceled) {
-		t.Errorf("Err = %v, want it to still unwrap to context.Canceled", out.Err)
+	// must keep getting an answer — and the answer has to be the deadline, or
+	// Apply could not have told this apart from a Ctrl+C in the first place.
+	if !errors.Is(out.Err, context.DeadlineExceeded) {
+		t.Errorf("Err = %v, want it to still unwrap to context.DeadlineExceeded", out.Err)
 	}
 }
 

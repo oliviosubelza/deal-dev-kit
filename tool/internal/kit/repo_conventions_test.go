@@ -7,17 +7,17 @@ import (
 	"testing"
 )
 
-// TestTeamConventionsRequireACoAuthorTrailer pins the owner-added rule that an
-// AI agent attributes its commits with a Co-Authored-By trailer. This
-// convention is not from the Aug 2026 coordinator briefing — it is a deliberate
-// repo-owner addition, and is the explicit exception to "only what the briefing
-// states" (see HANDOFF.md).
+// TestTeamConventionsForbidAIAttribution pins the rule that a commit is
+// authored by the person who owns the change and carries no AI attribution.
 //
-// Production change that makes this fail: deleting (or never adding) the
-// Co-Authored-By guidance from skills/general/conventions/SKILL.md. The
-// placement check fails if the rule is moved above the Conventional Commits
-// section it belongs next to.
-func TestTeamConventionsRequireACoAuthorTrailer(t *testing.T) {
+// This test previously asserted the opposite. It was introduced alongside a
+// SKILL.md paragraph that *required* a Co-Authored-By trailer, which inverted
+// the convention it was meant to protect and then locked the inversion in: CI
+// failed if anyone removed it. Both are corrected here.
+//
+// Production change that makes this fail: reintroducing Co-Authored-By (or any
+// other AI attribution) guidance as something to do, rather than to avoid.
+func TestTeamConventionsForbidAIAttribution(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	path := filepath.Join(root, "skills", "general", "conventions", "SKILL.md")
 
@@ -27,20 +27,26 @@ func TestTeamConventionsRequireACoAuthorTrailer(t *testing.T) {
 	}
 	body := string(data)
 
-	// The git trailer key, shown as a trailer (with its colon), is the
-	// falsifiable heart of the rule.
-	if !strings.Contains(body, "Co-Authored-By:") {
-		t.Fatalf("%s does not carry the Co-Authored-By trailer rule for AI commits", path)
+	// The prohibition has to be stated, not merely implied by silence: an
+	// agent that never reads the rule is the one that adds the trailer.
+	if !strings.Contains(body, "Never add a `Co-Authored-By` trailer") {
+		t.Fatalf("%s no longer forbids AI attribution in commits", path)
 	}
 
-	// The rule lives next to the Conventional Commits guidance. Anchor on the
-	// bold heading in the section body, not the plain mention in the
-	// frontmatter description.
+	// The rule belongs next to the Conventional Commits guidance, where an
+	// agent about to write a commit message is already reading.
 	section := strings.Index(body, "**Conventional Commits**")
 	if section < 0 {
 		t.Fatalf("%s no longer has a Conventional Commits section to anchor the rule to", path)
 	}
-	if strings.Index(body, "Co-Authored-By:") < section {
-		t.Errorf("the Co-Authored-By rule should follow the Conventional Commits guidance, not precede it")
+	if strings.Index(body, "Never add a `Co-Authored-By` trailer") < section {
+		t.Errorf("the AI-attribution rule should follow the Conventional Commits guidance, not precede it")
+	}
+
+	// The trailer may appear only as the counter-example marked "never". Any
+	// other occurrence means the prohibition has drifted back into a recipe.
+	const trailer = "Co-Authored-By: Claude"
+	if n := strings.Count(body, trailer); n > 1 {
+		t.Errorf("%s shows %q %d times; it may appear once, as the marked counter-example", path, trailer, n)
 	}
 }

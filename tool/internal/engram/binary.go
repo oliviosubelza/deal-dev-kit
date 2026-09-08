@@ -166,12 +166,18 @@ func (d Download) Target() string { return filepath.Join(d.Dir, d.Name) }
 // binaryStep is how this machine would acquire the binary, or the reason it
 // cannot. An empty Step with an empty reason never happens: one of the two is
 // always set.
+//
+// `go install` is preferred over the release asset in two cases: on Windows
+// always (see GoInstallArgs — Defender/ESET false-positive), and on any
+// platform the release simply does not publish an asset for. Everywhere else
+// — Linux and macOS with a published asset — the checksum-verified download
+// is strictly cheaper (seconds, no compile) and is preferred instead.
 func binaryStep(goos, goarch string, st Status) (Step, string) {
-	if st.GoFound() {
+	asset, hasAsset := assetName(goos, goarch)
+	if st.GoFound() && (goos == "windows" || !hasAsset) {
 		return Step{Kind: StepGoInstall, Args: GoInstallArgs()}, ""
 	}
-	asset, ok := assetName(goos, goarch)
-	if !ok {
+	if !hasAsset {
 		return Step{}, fmt.Sprintf(
 			"no hay un binario engram publicado para %s/%s y `go` no está en el PATH: instalarlo a mano",
 			goos, goarch)
@@ -282,9 +288,21 @@ func samePath(a, b string) bool {
 // the binary itself lands through a temporary file in the destination
 // directory plus a rename: an interrupted download must never leave a
 // truncated executable sitting on someone's PATH.
+//
+// Before touching the network at all, it trusts an already-verified local
+// file (see localBinaryVerified) — a retry within the same shell session,
+// before PATH catches up with a previous install, must not re-fetch and
+// re-extract an asset that is already correct, byte for byte. This only
+// covers the download path: `go install` has no published checksum for a
+// local compile to be verified against, and is unaffected.
 func fetchBinary(ctx context.Context, d Download, live io.Writer) error {
 	if live == nil {
 		live = io.Discard
+	}
+	if localBinaryVerified(d) {
+		fmt.Fprintf(live, "%s ya está instalado y verificado (%s): no se vuelve a descargar\n",
+			d.Target(), MarketplaceTag)
+		return nil
 	}
 	fmt.Fprintf(live, "descargando %s\n", d.URL)
 
@@ -548,7 +566,10 @@ func writeBinary(d Download, r io.Reader) error {
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName) // no-op once the rename succeeded
 
-	n, err := io.Copy(tmp, io.LimitReader(r, maxAssetBytes+1))
+	// Hashed while it is written, not re-read afterwards: the sidecar records
+	// exactly the bytes that landed, with one pass over the data instead of two.
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(r, maxAssetBytes+1))
 	if err == nil && n > maxAssetBytes {
 		err = fmt.Errorf("%s supera el tamaño máximo aceptado", d.Name)
 	}
@@ -567,5 +588,63 @@ func writeBinary(d Download, r io.Reader) error {
 	if err := os.Rename(tmpName, d.Target()); err != nil {
 		return fmt.Errorf("no se pudo instalar %s: %w", d.Target(), err)
 	}
+	// Best-effort: if this fails, the only consequence is the next run
+	// re-verifying over the network instead of trusting this file.
+	writeSidecar(d, hex.EncodeToString(h.Sum(nil)))
 	return nil
+}
+
+// sidecarName is the file that records a binary's own hash and the tag it
+// was fetched for, next to it in the same directory. Hidden with a leading
+// dot even on Windows, which does not special-case that, since it is
+// metadata about the binary and not something a user should mistake for it.
+func sidecarName(binaryName string) string { return "." + binaryName + ".sha256" }
+
+// localBinaryVerified reports whether the file already at d.Target() is one
+// deal-kit itself fetched for the exact pinned MarketplaceTag, without
+// touching the network.
+//
+// It cannot compare against the checksum published in checksums.txt: that
+// checksum covers the release archive (the .tar.gz/.zip), never the extracted
+// binary that ends up at Target() — hashing the local file and comparing it
+// to that sum could never match, they are different byte streams. Instead it
+// reads the sidecar writeBinary leaves next to a successful install, and
+// trusts the file only when the sidecar's recorded hash matches the file's
+// current content *and* the recorded tag matches MarketplaceTag. A file with
+// no sidecar (garbage, or an install from before this existed) and a binary
+// left over from an older tag are both, correctly, not trusted.
+func localBinaryVerified(d Download) bool {
+	fi, err := os.Stat(d.Target())
+	if err != nil || !fi.Mode().IsRegular() {
+		return false
+	}
+	if runtime.GOOS != "windows" && fi.Mode().Perm()&0o111 == 0 {
+		return false // not executable; do not trust it
+	}
+	raw, err := os.ReadFile(filepath.Join(d.Dir, sidecarName(d.Name)))
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(strings.TrimSpace(string(raw)))
+	if len(fields) != 2 || fields[1] != MarketplaceTag {
+		return false
+	}
+	f, err := os.Open(d.Target())
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false
+	}
+	return hex.EncodeToString(h.Sum(nil)) == fields[0]
+}
+
+// writeSidecar records what writeBinary just installed, so a later run can
+// verify it (see localBinaryVerified) without a network round trip. Best
+// effort: a failure here only costs the next run a redundant download.
+func writeSidecar(d Download, sum string) {
+	path := filepath.Join(d.Dir, sidecarName(d.Name))
+	_ = os.WriteFile(path, []byte(sum+"  "+MarketplaceTag+"\n"), 0o644)
 }

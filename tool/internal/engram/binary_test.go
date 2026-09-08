@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -50,6 +51,10 @@ func fakeHome(t *testing.T) string {
 type fakeRelease struct {
 	assets map[string][]byte
 	sums   string
+	// assetHits, when non-nil, counts requests for anything other than the
+	// checksums file — a test uses it to prove fetchBinary skipped the
+	// network entirely when a verified local file already sits at Target().
+	assetHits *int
 }
 
 func (fr fakeRelease) serve(t *testing.T) {
@@ -67,6 +72,9 @@ func (fr fakeRelease) serve(t *testing.T) {
 		if name == ChecksumsFile {
 			io.WriteString(w, sums)
 			return
+		}
+		if fr.assetHits != nil {
+			*fr.assetHits++
 		}
 		body, ok := fr.assets[name]
 		if !ok {
@@ -175,12 +183,16 @@ func TestGoInstallIsPreferredWhenTheToolchainIsThere(t *testing.T) {
 	// Upstream's own recommendation on Windows, because Defender and ESET
 	// flag their unsigned prebuilt binaries as a false positive. It is also a
 	// plain command, so it reuses the Runner and CommandError machinery.
+	// Windows is forced explicitly (rather than PlanFor's real runtime.GOOS):
+	// this preference is Windows-only (see
+	// TestTheReleaseAssetIsPreferredOnNonWindowsEvenWithTheToolchain), so the
+	// test must not depend on which platform runs the suite.
 	fakeHome(t)
 	st := readyNoBinary()
 	st.GoPath = "/usr/local/go/bin/go"
-	steps := PlanFor(st).Steps()
+	steps := planFor("windows", "amd64", st).Steps()
 	if len(steps) != 1 {
-		t.Fatalf("plan = %v, want a single binary step", PlanFor(st).Lines())
+		t.Fatalf("plan = %v, want a single binary step", planFor("windows", "amd64", st).Lines())
 	}
 	if steps[0].Kind != StepGoInstall {
 		t.Fatalf("step kind = %v, want StepGoInstall", steps[0].Kind)
@@ -188,6 +200,44 @@ func TestGoInstallIsPreferredWhenTheToolchainIsThere(t *testing.T) {
 	want := GoBin + " install " + EngramModule + "@" + MarketplaceTag
 	if got := steps[0].Line(); got != want {
 		t.Errorf("go install line:\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestTheReleaseAssetIsPreferredOnNonWindowsEvenWithTheToolchain is the other
+// half of the Windows-only preference: on a platform the release actually
+// publishes an asset for, the checksum-verified download is cheaper (seconds,
+// no compile) and wins even when `go` is on PATH.
+func TestTheReleaseAssetIsPreferredOnNonWindowsEvenWithTheToolchain(t *testing.T) {
+	dir := fakeHome(t)
+	st := readyNoBinary()
+	st.GoPath = "/usr/local/go/bin/go"
+	for _, goos := range []string{"linux", "darwin"} {
+		steps := planFor(goos, "amd64", st).Steps()
+		if len(steps) != 1 || steps[0].Kind != StepBinaryDownload {
+			t.Errorf("%s: plan = %v, want a single download step", goos, planFor(goos, "amd64", st).Lines())
+			continue
+		}
+		if steps[0].Get == nil || steps[0].Get.Dir != dir {
+			t.Errorf("%s: download destination = %v, want %q", goos, steps[0].Get, dir)
+		}
+	}
+}
+
+// TestGoInstallStillCoversAnArchitectureWithNoPublishedAsset preserves the
+// pre-existing fallback TestAnUnsupportedPlatformRefusesInsteadOfGuessingAURL
+// already covers for an unsupported goarch: restricting the Windows/non-
+// Windows preference must not remove `go install` as the escape hatch for a
+// platform the release simply never published a binary for.
+func TestGoInstallStillCoversAnArchitectureWithNoPublishedAsset(t *testing.T) {
+	fakeHome(t)
+	st := readyNoBinary()
+	st.GoPath = "/usr/local/go/bin/go"
+	for _, goos := range []string{"linux", "darwin", "freebsd"} {
+		steps := planFor(goos, "riscv64", st).Steps()
+		if len(steps) != 1 || steps[0].Kind != StepGoInstall {
+			t.Errorf("%s/riscv64: plan = %v, want a single go-install step",
+				goos, planFor(goos, "riscv64", st).Lines())
+		}
 	}
 }
 
@@ -348,10 +398,183 @@ func TestADownloadedBinaryLandsInTheDestination(t *testing.T) {
 			t.Errorf("mode = %v, want an executable", fi.Mode().Perm())
 		}
 	}
-	// Nothing temporary is left behind next to it.
+	// Nothing temporary is left behind: only the binary and the small sidecar
+	// that lets a later run recognise it without touching the network again
+	// (see TestALocalBinaryVerifiedBySidecarIsNotRedownloaded).
 	entries, _ := os.ReadDir(dir)
-	if len(entries) != 1 {
-		t.Errorf("the destination holds %d files, want only the binary", len(entries))
+	if len(entries) != 2 {
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		t.Errorf("the destination holds %v, want the binary plus its sidecar", names)
+	}
+	if _, err := os.Stat(filepath.Join(dir, sidecarName(BinaryName()))); err != nil {
+		t.Errorf("no sidecar checksum file was written: %v", err)
+	}
+}
+
+// --- verifying a local file before redownloading it ---
+//
+// The checksum published in checksums.txt covers the release *archive*
+// (the .tar.gz/.zip), never the extracted binary that ends up at Target() —
+// hashing the local file and comparing it to that published sum can never
+// match, they are different byte streams. Instead, deal-kit writes a small
+// sidecar next to the binary recording the extracted file's own hash and the
+// tag it was fetched for; a later run trusts what is on disk only when both
+// still agree, which also means a MarketplaceTag bump correctly forces a
+// re-fetch rather than being silently missed.
+
+func TestALocalBinaryVerifiedBySidecarIsNotRedownloaded(t *testing.T) {
+	fakeHome(t)
+	asset := thisAsset(t)
+	content := []byte("engram-binary-content")
+	assetHits := 0
+	fakeRelease{assets: map[string][]byte{
+		asset: archiveFor(t, asset, archiveEntry{BinaryName(), content}),
+	}, assetHits: &assetHits}.serve(t)
+
+	d, ok := PlanFor(readyNoBinary()).Binary()
+	if !ok {
+		t.Fatal("no download step to inspect")
+	}
+	if err := os.MkdirAll(d.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(d.Target(), content, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSidecarForTest(t, d, content, MarketplaceTag)
+
+	var live strings.Builder
+	if err := fetchBinary(context.Background(), d, &live); err != nil {
+		t.Fatalf("fetchBinary = %v", err)
+	}
+	if assetHits != 0 {
+		t.Errorf("the asset was fetched %d time(s); a verified local file should skip the network entirely", assetHits)
+	}
+	if !strings.Contains(live.String(), "ya está instalado") {
+		t.Errorf("nothing told the user the local file was trusted: %q", live.String())
+	}
+	got, err := os.ReadFile(d.Target())
+	if err != nil || string(got) != string(content) {
+		t.Errorf("content = %q (%v), want %q unchanged", got, err, content)
+	}
+}
+
+func TestALocalFileWithNoSidecarIsRedownloaded(t *testing.T) {
+	// The counterpart to the test above: a file deal-kit never wrote a
+	// sidecar for (garbage, or an install from before this fix existed) must
+	// not be trusted just because something is sitting at Target().
+	fakeHome(t)
+	asset := thisAsset(t)
+	content := []byte("the-real-release-content")
+	fakeRelease{assets: map[string][]byte{
+		asset: archiveFor(t, asset, archiveEntry{BinaryName(), content}),
+	}}.serve(t)
+
+	d, ok := PlanFor(readyNoBinary()).Binary()
+	if !ok {
+		t.Fatal("no download step to inspect")
+	}
+	if err := os.MkdirAll(d.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(d.Target(), []byte("someone else's file"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := fetchBinary(context.Background(), d, nil); err != nil {
+		t.Fatalf("fetchBinary = %v", err)
+	}
+	got, err := os.ReadFile(d.Target())
+	if err != nil || string(got) != string(content) {
+		t.Errorf("content = %q (%v), want the real release %q", got, err, content)
+	}
+}
+
+func TestALocalBinaryFromAnOlderTagIsRedownloaded(t *testing.T) {
+	fakeHome(t)
+	asset := thisAsset(t)
+	content := []byte("engram-binary-content")
+	assetHits := 0
+	fakeRelease{assets: map[string][]byte{
+		asset: archiveFor(t, asset, archiveEntry{BinaryName(), content}),
+	}, assetHits: &assetHits}.serve(t)
+
+	d, ok := PlanFor(readyNoBinary()).Binary()
+	if !ok {
+		t.Fatal("no download step to inspect")
+	}
+	if err := os.MkdirAll(d.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(d.Target(), content, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Same bytes, but the sidecar says an older tag: a version bump must not
+	// be silently missed just because the old binary happens to still be
+	// sitting there.
+	writeSidecarForTest(t, d, content, "v1.19.0")
+
+	if err := fetchBinary(context.Background(), d, nil); err != nil {
+		t.Fatalf("fetchBinary = %v", err)
+	}
+	if assetHits == 0 {
+		t.Error("a binary from an older tag was trusted without re-fetching")
+	}
+}
+
+func TestANonExecutableLocalBinaryIsNotTrustedEvenWithAMatchingSidecar(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no POSIX executable bit to strip")
+	}
+	fakeHome(t)
+	asset := thisAsset(t)
+	content := []byte("engram-binary-content")
+	assetHits := 0
+	fakeRelease{assets: map[string][]byte{
+		asset: archiveFor(t, asset, archiveEntry{BinaryName(), content}),
+	}, assetHits: &assetHits}.serve(t)
+
+	d, ok := PlanFor(readyNoBinary()).Binary()
+	if !ok {
+		t.Fatal("no download step to inspect")
+	}
+	if err := os.MkdirAll(d.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Correct content, correct sidecar, but the file lost its executable bit.
+	if err := os.WriteFile(d.Target(), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeSidecarForTest(t, d, content, MarketplaceTag)
+
+	if err := fetchBinary(context.Background(), d, nil); err != nil {
+		t.Fatalf("fetchBinary = %v", err)
+	}
+	if assetHits == 0 {
+		t.Error("a non-executable file was trusted without re-fetching")
+	}
+	fi, err := os.Stat(d.Target())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm()&0o111 == 0 {
+		t.Error("the re-fetched binary is still not executable")
+	}
+}
+
+// writeSidecarForTest writes the sidecar file fetchBinary itself would have
+// written for content, but pinned to an explicit tag rather than whatever
+// MarketplaceTag happens to be — the only way to construct a
+// from-an-older-tag fixture.
+func writeSidecarForTest(t *testing.T, d Download, content []byte, tag string) {
+	t.Helper()
+	sum := sha256.Sum256(content)
+	path := filepath.Join(d.Dir, sidecarName(d.Name))
+	if err := os.WriteFile(path, []byte(hex.EncodeToString(sum[:])+"  "+tag+"\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -446,6 +669,10 @@ func assertNothingWritten(t *testing.T, dir string) {
 }
 
 func TestTheGoInstallStepRunsTheResolvedToolchain(t *testing.T) {
+	// Forces Windows (see TestGoInstallIsPreferredWhenTheToolchainIsThere for
+	// why): this test is about runStep's StepGoInstall dispatch, not about
+	// which platform prefers it, so it must not depend on the host running
+	// the suite.
 	fakeHome(t)
 	st := readyNoBinary()
 	st.GoPath = "/fake/bin/go"
@@ -454,7 +681,7 @@ func TestTheGoInstallStepRunsTheResolvedToolchain(t *testing.T) {
 		fakeRunner: newFake(map[string]reply{line: {}}),
 		markets:    goodMarketplace, plugins: enabledPlugin,
 	}
-	out := Apply(context.Background(), f, found, PlanFor(st), nil)
+	out := Apply(context.Background(), f, found, planFor("windows", "amd64", st), nil)
 	if !out.Applied() {
 		t.Fatalf("Apply failed: %v", out.Err)
 	}

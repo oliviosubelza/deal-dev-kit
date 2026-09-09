@@ -50,3 +50,39 @@ func TestTeamConventionsForbidAIAttribution(t *testing.T) {
 		t.Errorf("%s shows %q %d times; it may appear once, as the marked counter-example", path, trailer, n)
 	}
 }
+
+// TestPersistenceSkillPinsFlywayAsSchemaOwner pins the one rule the
+// backend-persistence skill exists to settle: Flyway owns the schema, and
+// TypeORM runs with synchronize off.
+//
+// Before that skill existed, backend-architecture described `db/migration` as
+// "(Flyway / TypeORM)" — an active contradiction, not merely a gap: it told an
+// agent either tool could own the schema.
+//
+// Production change that makes this fail: reintroducing TypeORM as a schema
+// owner in backend-architecture, or dropping the `synchronize: false` rule
+// from backend-persistence.
+//
+// Two literals, deliberately. Asserting on much prose is how the previous
+// convention test in this file locked in its own inversion.
+func TestPersistenceSkillPinsFlywayAsSchemaOwner(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+
+	archPath := filepath.Join(root, "skills", "backend", "architecture", "SKILL.md")
+	arch, err := os.ReadFile(archPath)
+	if err != nil {
+		t.Fatalf("read backend-architecture skill: %v", err)
+	}
+	if strings.Contains(string(arch), "(Flyway / TypeORM)") {
+		t.Errorf("%s again names TypeORM as a schema owner alongside Flyway", archPath)
+	}
+
+	persistPath := filepath.Join(root, "skills", "backend", "persistence", "SKILL.md")
+	persist, err := os.ReadFile(persistPath)
+	if err != nil {
+		t.Fatalf("read backend-persistence skill: %v", err)
+	}
+	if !strings.Contains(string(persist), "`synchronize: false`") {
+		t.Errorf("%s no longer states the `synchronize: false` rule", persistPath)
+	}
+}

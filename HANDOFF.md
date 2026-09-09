@@ -1597,3 +1597,73 @@ tiempo real, no es problema."*
 
 **Estado final:** `SKILL.md` único, `description` en 217 caracteres, cuerpo en ~738
 tokens estimados (`general-tdd` está en ~890).
+
+## 22. `backend/persistence`: Flyway manda el schema (`feat/kit-backend-persistence`)
+
+El lead del equipo bajó sus reglas de persistencia. Una auditoría contra el kit
+dejó el número: de las **9 reglas, solo 2 estaban cubiertas**. `infrastructure/persistence/`
+tenía **dos líneas en todo el repo** — una fila en la tabla de `backend-connections`
+y un comentario en el árbol de `backend-architecture`. El mapper dominio↔ORM no
+existía en ningún lado.
+
+Y ese hueco no era neutro: `interface/mappers/` **sí** existía y estaba documentado.
+Un agente que buscara dónde poner el mapper de persistencia iba a caer en la carpeta
+equivocada, que es exactamente la que no puede importar TypeORM.
+
+Peor todavía, `skills/backend/architecture/SKILL.md:49` decía
+`db/migration (Flyway / TypeORM)`. Eso no es una omisión: es una **contradicción
+activa** de la regla nueva. Le dice al agente que cualquiera de los dos puede ser
+dueño del schema. Corregido a `(**Flyway** — the only place the schema changes;
+TypeORM runs with synchronize: false)`.
+
+### Qué se agregó
+
+| Archivo | Qué |
+|---|---|
+| `skills/backend/persistence/SKILL.md` | la skill, **un solo archivo** (sin `assets/` ni `references/`, siguiendo §21) |
+| `kit.yaml` | artefacto `backend/persistence` + entrada en `profiles.backend`, después de `backend/connections` |
+| `skills/backend/architecture/SKILL.md` | línea 49 desambiguada; `persistence/` en el árbol ahora dice `mappers`; una frase en el párrafo de `interface/mappers/` que apunta acá |
+| `skills/backend/connections/SKILL.md` | la fila Database extendida con "Schema changes are Flyway migrations" |
+| `tool/internal/kit/repo_conventions_test.go` | `TestPersistenceSkillPinsFlywayAsSchemaOwner` |
+
+### La regla central: tres artefactos, en orden
+
+1. migración Flyway (`db/migration/`) — la fuente de verdad de los campos ·
+2. entidad ORM de TypeORM (`infrastructure/persistence/entities/`) — la espeja 1:1 ·
+3. agregado de dominio (`domain/`) — solo reglas de negocio, cero decoradores.
+
+**El orden es la regla.** Un cambio de campo arranca en la migración, nunca en la
+entidad. Con `synchronize: false` una entidad que se desfasa **no falla ruidosa**:
+falla en la primera query en producción.
+
+### Decisiones, con su razón
+
+| Decisión | Razón |
+|---|---|
+| Mapper en `infrastructure/persistence/mappers/`, no en `interface/mappers/` | Misma técnica, lado opuesto del core: uno mapea a la wire (DTOs Zod), el otro a la tabla (entidades TypeORM). Juntarlos pondría un import de TypeORM al lado de un DTO |
+| El id lo da la base: `id: OrderId \| null` | `BIGSERIAL` es impuesto. El puerto es `save(order: Order): Promise<Order>` y devuelve el agregado rehidratado; el use case usa **el retornado** para el evento, el DTO y la respuesta |
+| Se acepta el `null` | **Trade-off explícito:** el id nullable aparece incluso donde la fila seguro existe. La alternativa pura — dos tipos, `NewOrder` y `Order` — saca el null pero **duplica agregado, factory y mapper por entidad**. Un UUID generado por la app disolvería el problema, pero está fuera de la mesa |
+| Frontmatter del kit, no el de `skill-creator` | Igual que §21: sin `license` ni `metadata`, y sin `applies_to` (lo lleva `kit.yaml`, como los hermanos backend). `name: backend-persistence` porque `CheckFrontmatterName` lo valida contra el nombre de instalación |
+| El test asserta **dos literales**, no prosa | La prosa es justamente cómo el test de convención anterior (`Co-Authored-By`) se blindó a sí mismo la inversión. Ver §19 y el doc comment del test |
+
+### Lo que se dejó afuera, a propósito
+
+Transacciones y unit of work, paginación, N+1, soft delete, outbox, seeds,
+rollback de migraciones, índices, pooling, multi-tenancy y optimistic locking.
+
+**Razón:** ninguno está en el briefing del lead. Y el **límite transaccional** en
+particular necesita una decisión de equipo que nadie tomó todavía — documentar una
+suposición la fijaría, que es exactamente el error que cometió el test del
+`Co-Authored-By`: escribir la regla equivocada y después blindarla con CI.
+
+### Verificación
+
+`gofmt -l .` en la raíz: sin salida. Dentro de `tool/`: `go vet ./...` limpio,
+`go test ./... -count=1` en verde (`internal/execenv` sigue sin archivos de test),
+`go build ./...` ok.
+
+Binario real con `--dry-run --offline --kit-dir`: `backend-persistence` aparece en
+el plan de **backend** y **no** aparece en `web` ni en `mobile`.
+
+**Tag:** `kit-v*` — el cambio es contenido del kit; el único archivo bajo `tool/`
+es un test, que no cambia el binario.

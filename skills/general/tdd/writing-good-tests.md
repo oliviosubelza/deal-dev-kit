@@ -86,6 +86,16 @@ Before adding a mock or test helper:
   About to assert on the mock itself? → unmock it or delete the assertion.
 ```
 
+## Events across modules
+
+**Test the publisher's contract, not the SDK.** Publishing is correct when the topic, the payload shape and the correlation id are right. Put the double at the SDK level and assert on the message your code builds — the client's internals are its maintainers' tests to write.
+
+**The handler is the consumer's unit.** Feed it the envelope as SQS actually delivers it, not a hand-tidied object. *Mirror real data completely* applies here in full: a partial fixture passes while the real payload breaks on a field the test never wrote.
+
+**Idempotency is a test, not a hope.** `backend-connections` requires every SQS handler to be idempotent. You show it by running the handler twice with the same message and asserting the second run changes nothing observable — no second row, no second outbound call.
+
+**Two sides, one contract, tested apart.** Do not stand up SNS and SQS to prove that two modules agree. Assert that the publisher emits the shape, assert that the consumer accepts it, and keep both honest with one shared fixture of the event.
+
 ## The mutation check
 
 Before finishing, mentally mutate the production code. At least one test should fail for each realistic mutation:
@@ -111,6 +121,9 @@ A mutation nothing catches marks the behavior as unprotected — or the test as 
 | Build a mock response | Mirror the real structure completely |
 | Need cleanup only tests use | Put it in test utilities |
 | Watch mock setup balloon | Switch to an integration test with real components |
+| Test an event publisher | Assert the message you build — topic, shape, correlation id |
+| Test an SQS handler | Feed the envelope as delivered, then run it twice |
+| Cover an event across modules | One shared fixture, two tests — not real SNS/SQS |
 | Finish a test file | Run the mutation check |
 
 ## Warning signs
@@ -125,3 +138,6 @@ A mutation nothing catches marks the behavior as unprotected — or the test as 
 - An assertion checks a `*-mock` test id, or fails if you remove the mock
 - A method is called only from test files
 - Mock setup is more than half the test, or you cannot explain why the mock is needed
+- An event test asserts that the SDK client was called, never the message it carried
+- A handler that writes or calls out is run once, and idempotency is only claimed
+- The consumer's fixture is a tidied object the publisher would never emit

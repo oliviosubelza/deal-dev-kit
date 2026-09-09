@@ -77,6 +77,7 @@ When you write or change a test, or add a mock, read [writing-good-tests.md](wri
 - Do not nag. Asked once and answered "no" settles it for that task.
 - Do not write the assertion against a mock (`expect(mock).toHaveBeenCalled()`) as the point of the test.
 - Do not mark work done on the strength of a test that never failed first — you have not shown it can catch anything.
+- Do not report work as done on green tests alone. Green says the units behave; it says nothing about whether the app starts. Run the boot gate in `general-smoke-run` before calling it finished.
 
 ---
 

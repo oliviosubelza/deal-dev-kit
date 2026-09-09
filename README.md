@@ -94,7 +94,7 @@ them the plugin installs but never runs.
 | Path        | Contents                                                          |
 | ----------- | ----------------------------------------------------------------- |
 | `kit.yaml`  | Manifest of every installable artifact, its destination and deps  |
-| `skills/`   | Agent skills: conventions, security, TDD, architecture, UX review |
+| `skills/`   | Agent skills: conventions, security, TDD, the boot gate, architecture, UX review |
 | `config/`   | Always-on agent rules, imported from the project's `CLAUDE.md`    |
 | `ui-kit/`   | UI component source, copied into projects by the CLI              |
 | `tool/`     | The `deal-kit` CLI (Go)                                           |
@@ -131,6 +131,34 @@ that rejects correct work stops being read. It is the first artifact whose id
 prefix is neither a project type nor `general`, because the principles cover two
 of the three types and the id prefix is organisational only — `applies_to` in
 `kit.yaml` is what the CLI reads.
+
+### The boot gate
+
+`skills/general/smoke-run` installs as `general-smoke-run` in **all three**
+project types. It is the check that comes after the tests: bring the
+repository's container dependencies up and wait for them to be *healthy*, build
+the change, start the app in the background on a spare port, wait for the app's
+own ready line, probe it once, then kill the process tree, confirm the port is
+free again and stop only the compose services the gate itself started.
+
+It exists because a green suite is evidence about units, not about startup. The
+failures it catches live between the pieces — a provider that was never
+registered, an env var no test reads, a circular import, the Zod config schema
+that only validates at boot — and every one of them is invisible to the tests
+and immediate to whoever runs the app next.
+
+The skill never hardcodes how a repository starts: `package.json` → `scripts`
+and the repository's own `docker-compose.yml` / `compose.yaml` are the source of
+truth, and the ready line is read from the log rather than guessed. Booting on a
+spare port instead of the project's default keeps a developer's already-running
+server from turning into a bind failure that gets blamed on the change, and
+teardown follows the same discipline: a stack that was already up when the gate
+started is left up.
+
+Its report is written to be impossible to fake — the exact command, the ready
+line quoted verbatim, the probe's status code, the compose services started and
+the teardown confirmation. A missing field is an unverified boot, not a done.
+It is one `SKILL.md`, like nine of the kit's eleven skills.
 
 ## Ownership rules
 

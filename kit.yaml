@@ -41,15 +41,16 @@ import_rewrites:
 
 # What `deal-kit init` installs for each project type.
 profiles:
-  backend: [general/conventions, general/security, general/tdd, general/persona, backend/architecture, backend/connections, backend/generate-schema, backend/review-security]
-  web:     [general/conventions, general/security, general/tdd, general/persona, web/architecture, web/ui, frontend/ux-review, ui-kit/base, ui-kit/theme, web/generate-schema]
-  mobile:  [general/conventions, general/security, general/tdd, general/persona, mobile/architecture, mobile/offline, frontend/ux-review, mobile/generate-schema]
+  backend: [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, backend/architecture, backend/connections, backend/generate-schema, backend/review-security]
+  web:     [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, web/architecture, web/ui, frontend/ux-review, ui-kit/base, ui-kit/theme, web/generate-schema]
+  mobile:  [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, mobile/architecture, mobile/offline, frontend/ux-review, mobile/generate-schema]
 
 artifacts:
   # ---- skills ----
   - { id: general/conventions,  type: skill, applies_to: [backend, web, mobile], src: skills/general/conventions, group: "Team conventions" }
   - { id: general/security,     type: skill, applies_to: [backend, web, mobile], src: skills/general/security, group: "Team conventions" }
   - { id: general/tdd,          type: skill, applies_to: [backend, web, mobile], src: skills/general/tdd, group: "Team conventions" }
+  - { id: general/smoke-run,    type: skill, applies_to: [backend, web, mobile], src: skills/general/smoke-run, group: "Team conventions" }
   # ---- always-on config ----
   # Not a skill: a skill loads only when the agent judges its description to
   # match the task, and a tone rule that applies to every response cannot be

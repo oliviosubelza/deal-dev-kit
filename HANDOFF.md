@@ -1429,3 +1429,171 @@ test pase por un camino que ningún usuario recorre.
 verde.
 
 **Tag:** `v*`.
+
+## 21. `general/smoke-run`: la entrega tiene que arrancar (`feat/kit-smoke-run`)
+
+En la demo el agente terminó el trabajo, corrió los tests y todo pasó. Cuando el
+usuario intentó levantar la app, no arrancó. El kit no tenía **nada** que cubriera
+eso: `general-tdd` cierra en verde y ahí se terminaba la evidencia.
+
+La clase de fallo es exactamente la que ningún unit test ve, porque vive entre las
+piezas: un provider que el módulo nunca registró, una env var que ningún test lee,
+un import circular, el schema Zod de `config/` que solo valida al bootear, un alias
+que el bundler resuelve y el test runner shimea. Suite verde, `main` muerto en la
+primera línea.
+
+### Qué se agregó
+
+| Archivo | Qué |
+|---|---|
+| `skills/general/smoke-run/SKILL.md` | la skill, reestructurada al contrato de `skill-creator`: Activation Contract, Hard Rules, Decision Gates, Execution Steps, Output Contract, References |
+| `kit.yaml` | artefacto `general/smoke-run` + entrada en los tres `profiles`, después de `general/tdd` |
+| `skills/general/tdd/SKILL.md` | una línea en `What NOT to do` que apunta acá. No repite la skill: la nombra |
+| `README.md` | sección "The boot gate" + fila de la tabla `skills/` |
+
+### El gate
+
+1. Levantar las **dependencias de contenedor** que el repo declara y esperar a que
+estén *healthy* · 2. buildear · 3. levantar **en background**, en un puerto libre,
+con el log a archivo · 4. **pollear el puerto** hasta que responda o expire, y probar
+una vez por HTTP · 5. matar el árbol de procesos, **verificar que el puerto quedó libre**
+y frenar **solo** los servicios que arrancó el propio gate — el paso 5 corre también
+cuando fallan el 2, el 3 o el 4.
+
+### Decisiones, con su razón
+
+| Decisión | Razón |
+|---|---|
+| Skill sola, sin config always-on | Se ofreció anclarlo en un `config/` con `ensure_line` (como la persona) porque una skill carga solo si el modelo juzga que la `description` aplica — el mismo mecanismo que falló en la demo. El dueño del kit eligió skill sola. **Riesgo asumido y conocido: si el gate se vuelve a saltear, esta es la palanca que queda por mover.** La `description` se escribió agresiva a propósito ("antes de decir que algo está done, finished, working, ready to review or ready to merge") |
+| La skill no hardcodea ningún comando | Los tres repos **no existen todavía** (§8). Afirmar que existe `start:dev` sería inventar una convención. La fuente de verdad es `package.json` → `scripts`, y la línea de ready se lee del log, no se adivina |
+| Puerto libre, nunca el default del proyecto | El server del propio dev suele estar en el default: el bind falla y el fallo se le achaca al cambio. Y un check que se muere a la mitad deja el puerto del equipo secuestrado |
+| `--strictPort` en Vite | Sin él Vite se corre calladito al siguiente puerto libre y el probe pega contra nada |
+| `taskkill /T` en Windows | Matar `npm.cmd` **no** mata el `node` que tiene el puerto. Por eso el paso 4 verifica el puerto en vez de confiar en el exit code del kill |
+| Móvil no tiene probe | Sin device no hay puerto que consultar. El bundle (`expo export`) sí caza la clase de fallo que importa. Si algo necesita emulador y no lo había, se reporta sin verificar, no se redondea a verificado |
+
+### Reestructura al contrato de `skill-creator`
+
+La skill se reescribió con las secciones en el orden del contrato (Activation
+Contract, Hard Rules, Decision Gates, Execution Steps, Output Contract,
+References) y la sección "What NOT to do" se plegó dentro de Hard Rules. Esa pasada
+también creó `assets/` y `references/`, que la pasada siguiente eliminó — ver abajo.
+
+La `description` bajó de **454 a 227 caracteres**, con las trigger words primero
+(`done, finished, working, ready to review, ready to merge, before opening a PR`).
+**Razón:** una `description` inflada diluye justamente las palabras por las que la
+skill se activa, y la activación es el mecanismo que falló en la demo. El cuerpo
+pasó de ~1593 a ~1030 tokens estimados; no bajó a los ~700 del contrato porque el
+gate sumó un paso entero (Docker) y tres reglas nuevas de evidencia, y amputar
+reglas para llegar al número era peor que pasarse. Referencia interna:
+`general-tdd` está en ~890.
+
+**El frontmatter NO sigue a `skill-creator`.** Ninguna de las 11 skills del kit
+lleva `license` ni `metadata`, y `name` tiene que seguir siendo
+`general-smoke-run` porque `tool/internal/kit` (`CheckFrontmatterName`) lo valida
+contra el nombre de instalación de `kit.yaml`. La convención del kit gana sobre el
+contrato global, a propósito.
+
+### Paso nuevo: dependencias de contenedor
+
+El gate ahora levanta lo que el repo declara (`docker-compose.yml`,
+`compose.yaml`, `docker-compose.*.yml`) **antes** de buildear y bootear. Misma
+disciplina que ya aplicaba a `package.json` → `scripts`: se lee lo que hay, no se
+inventa ni el archivo ni los nombres de servicio.
+
+| Decisión | Razón |
+|---|---|
+| Esperar **healthy**, no "started" (`docker compose up -d --wait`) | Un contenedor arriba pero que todavía no acepta conexiones mata la app en el boot, y el fallo se le achaca al cambio |
+| Teardown **solo de lo que arrancó el gate** | Espeja la disciplina del puerto. Si el stack ya estaba arriba, se deja arriba: matarle la base de datos al dev es peor que el problema que este gate resuelve. Se chequea primero, se registra lo que se arrancó, se frena solo eso |
+| Docker ausente o stack que no levanta | Boot **UNVERIFIED** nombrando la dependencia que faltó. Nunca se redondea a verificado |
+
+### Incidente: un modelo débil confirmó un boot que nunca corrió
+
+Ayer un modelo clase Sonnet corrió el espíritu de este gate y reportó "funciona"
+**sin haber verificado que la app arrancara**. La prosa no lo frenó. La mitigación
+es estructural, no retórica: el Output Contract exige una línea con campos que son
+imposibles de producir sin haber corrido los comandos — el comando exacto, la línea
+de ready **citada textual del log**, el status code HTTP del probe, los servicios de
+compose arrancados (o `none`) y la confirmación de que el puerto quedó libre y el
+stack se bajó.
+
+Dos Hard Rules lo cierran: **cualquier campo faltante es UNVERIFIED, no done**
+(ausencia de evidencia observada nunca es un pase), y **está prohibido reportar un
+status code, una línea de ready o un estado de salud que no se haya leído de la
+salida real**.
+
+### Verificación
+
+`gofmt -l .` en la raíz del repo: sin salida.
+
+`go vet ./...` y `go test ./... -count=1` **tienen que correr dentro de `tool/`**:
+la raíz del repo no es un módulo Go y ahí fallan con
+`directory prefix . does not contain main module`. Dentro de `tool/`: vet limpio,
+**11 paquetes ok** (`internal/execenv` no tiene archivos de test). La línea previa
+de esta sección decía `go test ./... -count=1` "12/12" desde la raíz: era
+incorrecta en las dos cosas.
+
+Binario real contra los tres tipos (`--dry-run --offline --kit-dir`): los tres
+resuelven `SKILL.md` bajo `.claude/skills/general-smoke-run/`. El CLI copia
+subdirectorios de skill recursivamente (`tool/internal/plan/plan.go`, `filePairs`
+usa `filepath.WalkDir`), así que `assets/` y `references/` se instalan solos.
+
+**Tag:** `kit-v*` — el cambio es contenido del kit, no toca `tool/`.
+
+### Pasada de simplificación (la que dejó la skill como está)
+
+La versión reestructurada se había ido a ~1030 tokens con once Hard Rules. El dueño
+del kit cortó: *"nos estamos complicando mucho, es simplemente definir que al
+terminar algo grande pruebe él mismo que está funcionando todo para que lo solucione
+en la misma iteración"*. Se recortó a eso.
+
+| Cambio | Razón |
+|---|---|
+| Disparador por **camino de arranque**, no por tamaño | "Cuando sea gigante" es un criterio que el modelo tiene que adivinar. La demo no falló por grande: falló porque el cambio tocó el boot. Una línea en un `@Module` mata el arranque; quinientas dentro del cuerpo de un service no. El Activation Contract ahora lista la clase: registro de módulos/DI, env vars y schema de config, dependencias, entrypoint, config de build y aliases, migraciones y compose |
+| **Polling al puerto** en vez de grep de la ready line | La ready line era un string que había que adivinar: si se erraba, el wait caía al timeout y el probe pegaba contra un server que todavía arrancaba. El polling no adivina nada. La ready line se sigue **citando** del log como evidencia en el reporte, pero ya no se **espera** por ella |
+| Once Hard Rules a siete | Se plegaron las redundantes |
+| Se descartó shippear un `boot-gate.mjs` ejecutable | Se propuso un script Node sin dependencias (detección + overrides + polling) porque el exit code saca al modelo de la decisión. Se descartó: los tres repos objetivo todavía no existen (§8), un ejecutable es código del kit y necesita fixtures y tests de detección, y si el gate corre poco el mantenimiento no se amortiza. Se conservó la única idea gratis del script: el polling |
+
+**Conflicto de puertos con el entorno de desarrollo del equipo: ya resuelto por
+diseño.** La app arranca en puerto libre, nunca el default, y compose levanta solo
+el delta y frena solo eso. Lo que **sí** puede chocar y el puerto libre no cubre es
+el **build**: `npm run build` escribe `dist/`, y con un `nest start --watch`
+corriendo los dos escriben el mismo directorio. Hipótesis sobre stacks estándar, sin
+verificar contra los repos reales — pero es el riesgo a mirar, no los puertos.
+
+### Dos defectos corregidos en las recetas
+
+Ambos scripts tenían el teardown como bloque final, pero `npm run build || exit 1`
+sale antes: **un build fallido dejaba la stack de compose levantada**, contradiciendo
+la propia regla de la skill de que el paso 5 corre siempre. Corregido con
+`trap teardown EXIT` en POSIX y `try/finally` en PowerShell. `sh -n` valida la
+sintaxis del POSIX; el PowerShell no se ejecutó (no hay Windows acá).
+
+Las recetas siguen siendo plantillas con placeholders, no scripts corridos: no hay
+app Node en este repo contra la que ejecutarlas. Su comportamiento en runtime está
+**sin verificar por construcción**, igual que las recetas que reemplazaron.
+
+### Colapso a un solo archivo (estado final)
+
+`assets/` y `references/` se **eliminaron**. Razón del dueño del kit: *"veo que
+dentro de smoke run hay assets y references, muy cargado todo"*.
+
+Y la evidencia lo respalda: de las 11 skills del kit, **9 son un solo `SKILL.md`**.
+La única otra con material de apoyo es `general/tdd`, y es **un archivo hermano
+plano** (`writing-good-tests.md`), no subdirectorios. `smoke-run` con dos carpetas
+era el único outlier de estructura del repo.
+
+Lo que se perdió al borrar, dicho explícitamente: las recetas ejecutables POSIX y
+PowerShell, y `rationale.md` con el fundamento largo de cada regla. Las reglas
+sobreviven en Hard Rules; el *por qué* extendido de cada una, no. Si vuelve a hacer
+falta, el patrón correcto para este repo es un archivo hermano plano al lado del
+`SKILL.md`, como hace `tdd` — no una carpeta.
+
+El Activation Contract también se angostó. Ya no dispara en "todo cambio
+sustancial" sino en **cambios que el equipo no vería romperse en su propia
+pantalla**: inicialización o scaffold de un proyecto, wiring de módulos y DI, env
+vars y schema de config, dependencias, entrypoint, config de build y aliases,
+migraciones, compose. *"En caso de ser cosas chicas eso lo podemos ver nosotros en
+tiempo real, no es problema."*
+
+**Estado final:** `SKILL.md` único, `description` en 217 caracteres, cuerpo en ~738
+tokens estimados (`general-tdd` está en ~890).

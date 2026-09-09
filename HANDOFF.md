@@ -1708,3 +1708,57 @@ atribución, sin tocarla, y se corrió
 en verde · los dos tests de convenciones (`AIAttribution` y `Flyway`) pasan.
 
 **Tag:** `kit-v*` — solo contenido del kit, no toca `tool/`.
+
+---
+
+## 24. Pruebas de eventos SNS/SQS entre módulos (`feat/kit-event-testing`)
+
+El lead pidió "pruebas de notificación y consumo de eventos SNS entre módulos".
+La auditoría encontró que el kit no tenía **nada** para eso: la palabra
+`integration` aparecía **cero** veces en `skills/general/tdd/SKILL.md`, y ni DB,
+ni SNS, ni SQS, ni Redis, ni cliente HTTP aparecían en ninguno de los dos
+archivos de TDD.
+
+Peor: `skills/backend/connections/SKILL.md:80` ya **exigía** que todo handler de
+SQS fuera idempotente, sin una sola línea sobre cómo demostrarlo. Una regla
+declarada que nadie verifica.
+
+### Qué se agregó
+
+Todo en `skills/general/tdd/writing-good-tests.md`, que ya era el archivo dueño
+del tema. No se creó archivo ni skill nueva. La sección
+`## Events across modules` va después del Principio 2 porque es una aplicación
+de "exercise the real thing".
+
+| Regla | Razón |
+|---|---|
+| El publisher se prueba por su contrato — topic, forma del payload, correlation id — con el doble al nivel del SDK | Afirmar que se llamó al cliente de AWS prueba el SDK, no el mensaje que arma tu código |
+| El handler es la unidad del consumer, y recibe el envelope tal como SQS lo entrega | Un fixture parcial pasa mientras el payload real rompe en un campo que el test nunca escribió (regla ya existente en `writing-good-tests.md:72`, se cita, no se repite) |
+| La idempotencia se demuestra corriendo el handler **dos veces** con el mismo mensaje: la segunda corrida no cambia nada observable | Cierra el hueco de `backend-connections:80`; se referencia la skill por nombre, sin repetir la mecánica de Redis/dedup |
+| Los dos lados se prueban por separado contra **un mismo fixture** del evento | Levantar SNS y SQS para probar que dos módulos coinciden es infraestructura, no contrato |
+
+Se agregaron además el `### Gate` de la sección, tres filas en
+`## Quick reference` y tres viñetas en `## Warning signs`, para que la sección
+sea consistente con el resto del archivo.
+
+Cross-reference en `skills/backend/connections/SKILL.md:80`: una sola frase que
+nombra al dueño (`general-tdd`) y no duplica, siguiendo el estilo canónico de
+`skills/general/security/SKILL.md:19`.
+
+### Limitación deliberada
+
+Esto es guía para probar **los dos lados contra un contrato compartido**, no
+para levantar SNS/SQS reales: no hay localstack, no hay testcontainers, no hay
+receta de integración. Dos razones, ambas de estado actual y no de opinión:
+nadie en el equipo decidió todavía cuál es la infraestructura de tests de
+integración, y los tres repos objetivo **no existen** (§8, etapa de diseño).
+Escribir esa receta ahora sería inventar convención, que es exactamente lo que
+las reglas duras del repo prohíben.
+
+### Verificación
+
+`gofmt -l .` sin salida · desde `tool/`, `go vet ./...` y
+`go test ./... -count=1` en verde. `repo_skills_test.go` recorre el árbol real
+de `skills/`, así que ejercita estas ediciones.
+
+**Tag:** `kit-v*` — solo contenido del kit, no toca `tool/`.

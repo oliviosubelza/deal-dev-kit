@@ -77,7 +77,7 @@ A webhook is not an authenticated user, so **JWT does not apply**. Two requireme
 
 SNS publishes, SQS consumes, and the fan-out is what keeps services decoupled.
 
-**Every SQS handler must be idempotent.** SQS guarantees at-least-once delivery, so the same message *will* arrive twice — this is normal operation, not an error case. Deduplicate on a message or business key held in Redis (`infrastructure/cache/`), and make the handler safe to run again.
+**Every SQS handler must be idempotent.** SQS guarantees at-least-once delivery, so the same message *will* arrive twice — this is normal operation, not an error case. Deduplicate on a message or business key held in Redis (`infrastructure/cache/`), and make the handler safe to run again. For how to prove a handler is idempotent, see `general-tdd`'s writing-good-tests — that testing rule is not repeated here.
 
 ## Realtime
 

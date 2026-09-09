@@ -37,7 +37,7 @@ crm-deal-<service>-service/
          ├─ domain/              # CORE: entities, value-objects, ports, exceptions
          ├─ application/         # use-cases
          ├─ infrastructure/      # ADAPTERS
-         │  ├─ persistence/      # TypeORM: entities, repositories
+         │  ├─ persistence/      # TypeORM: entities, repositories, mappers
          │  ├─ cache/            # Redis: cache, idempotency, locks
          │  ├─ messaging/        # SNS publisher · SQS consumers
          │  ├─ clients/          # other DEAL microservices (internal)
@@ -46,7 +46,7 @@ crm-deal-<service>-service/
          └─ interface/           # controllers, dto, mappers, webhooks, realtime (SSE)
 ```
 
-Plus, at the repository root: `db/migration` (Flyway / TypeORM), `test` (unit + e2e), and a `Dockerfile`.
+Plus, at the repository root: `db/migration` (**Flyway** — the only place the schema changes; TypeORM runs with `synchronize: false`), `test` (unit + e2e), and a `Dockerfile`.
 
 `health/` sits beside the modules, not inside one: a health check reports on the service, not on a business domain. It serves **liveness** and **readiness** separately, because ECS Fargate needs to tell a container that is alive from one that is ready to receive traffic.
 
@@ -92,7 +92,7 @@ z.string().describe('...')
 
 A description written in the decorator describes the endpoint; one written in the schema describes the data, and travels with it everywhere the schema is used.
 
-`interface/mappers/` transforms explicitly between domain entities and Zod DTOs. Explicitly means written out: returning a domain entity straight from a controller couples the wire format to the core.
+`interface/mappers/` transforms explicitly between domain entities and Zod DTOs. Explicitly means written out: returning a domain entity straight from a controller couples the wire format to the core. The domain↔TypeORM mapper is a different file on the other side of the core — see the `backend-persistence` skill.
 
 ## One service, one database
 

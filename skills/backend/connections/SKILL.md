@@ -20,7 +20,7 @@ The one exception is direction: something arriving from outside enters through `
 | Redis | `infrastructure/cache/` | Behind a `CachePort`. Also carries SQS event idempotency and the rate-limit counters. |
 | Other DEAL microservices | `infrastructure/clients/` | Direct over internal DNS with a service token. **Never through the Gateway.** |
 | External APIs (bank, SAP, Azure) | `infrastructure/integrations/` | Anti-corruption layer + circuit breaker + Secrets Manager. |
-| Database | `infrastructure/persistence/` | TypeORM entities and repositories, behind a repository port. |
+| Database | `infrastructure/persistence/` | TypeORM entities and repositories, behind a repository port. Schema changes are Flyway migrations — see `backend-persistence`. |
 | Publishing events | `infrastructure/messaging/` | SNS publishes. |
 | Consuming events | `infrastructure/messaging/` | SQS consumes. Handlers must be idempotent. |
 | Secrets | `infrastructure/secrets/` | AWS Secrets Manager. Never `.env` in production. |

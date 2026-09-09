@@ -41,7 +41,7 @@ import_rewrites:
 
 # What `deal-kit init` installs for each project type.
 profiles:
-  backend: [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, backend/architecture, backend/connections, backend/generate-schema, backend/review-security]
+  backend: [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, backend/architecture, backend/connections, backend/persistence, backend/generate-schema, backend/review-security]
   web:     [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, web/architecture, web/ui, frontend/ux-review, ui-kit/base, ui-kit/theme, web/generate-schema]
   mobile:  [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, mobile/architecture, mobile/offline, frontend/ux-review, mobile/generate-schema]
 
@@ -62,6 +62,7 @@ artifacts:
 
   - { id: backend/architecture, type: skill, applies_to: [backend], src: skills/backend/architecture, group: "Backend" }
   - { id: backend/connections,  type: skill, applies_to: [backend], src: skills/backend/connections, group: "Backend" }
+  - { id: backend/persistence,  type: skill, applies_to: [backend], src: skills/backend/persistence, group: "Backend" }
   - { id: web/architecture,     type: skill, applies_to: [web],     src: skills/web/architecture, group: "Web" }
   - { id: web/ui,               type: skill, applies_to: [web],     src: skills/web/ui, group: "Web" }
   - { id: mobile/architecture,  type: skill, applies_to: [mobile],  src: skills/mobile/architecture, group: "Mobile" }

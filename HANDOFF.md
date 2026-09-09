@@ -1667,3 +1667,44 @@ el plan de **backend** y **no** aparece en `web` ni en `mobile`.
 
 **Tag:** `kit-v*` — el cambio es contenido del kit; el único archivo bajo `tool/`
 es un test, que no cambia el binario.
+
+## 23. Ramas, commits y Jira en `general-conventions` (`feat/kit-git-jira-workflow`)
+
+La bajada del lead trajo un flujo de trabajo atado a Jira que el kit no cubría en
+ningún lado: `jira` tenía **cero** apariciones en todo el repo.
+
+### Qué se agregó
+
+Todo en `skills/general/conventions/SKILL.md`, que ya era la skill dueña del tema.
+No se creó una skill nueva: la regla de Conventional Commits ya vivía ahí, y la
+sección `## Polyrepo + trunk-based` ya hablaba de ramas.
+
+| Regla | Dónde |
+|---|---|
+| `type(scope): subject (JIRA-KEY)` — scope = la entidad, clave de Jira al cierre | junto a Conventional Commits |
+| Rama `feat/<JIRA>-descripcion-corta`, nunca commit directo a `main` | `## Polyrepo + trunk-based` |
+| `main` se mueve solo por PR mergeado | idem |
+| Mover la tarjeta de Jira es acción **humana**, no del agente | idem |
+
+Los tres ejemplos de commit se reemplazaron: los que había eran **sin scope**
+(`feat: add order cancellation`), y el lead pide scope obligatorio.
+
+### La trampa de este cambio
+
+`TestTeamConventionsForbidAIAttribution`
+(`tool/internal/kit/repo_conventions_test.go:20`) no solo exige que la regla de
+atribución exista. Exige además que **venga después** del texto
+`**Conventional Commits**` en el archivo, y que el literal
+`Co-Authored-By: Claude` aparezca **una sola vez**, como contraejemplo marcado.
+
+Los ejemplos que había que reemplazar están justo en esa sección. Cualquier
+reordenamiento rompe el test. Se editó solo lo que está **antes** de la regla de
+atribución, sin tocarla, y se corrió
+`go test ./internal/kit/ -run AIAttribution -count=1` para confirmarlo.
+
+### Verificación
+
+`gofmt -l .` sin salida · `go vet ./...` y `go test ./... -count=1` desde `tool/`
+en verde · los dos tests de convenciones (`AIAttribution` y `Flyway`) pasan.
+
+**Tag:** `kit-v*` — solo contenido del kit, no toca `tool/`.

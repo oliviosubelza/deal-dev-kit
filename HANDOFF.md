@@ -1762,3 +1762,186 @@ las reglas duras del repo prohíben.
 de `skills/`, así que ejercita estas ediciones.
 
 **Tag:** `kit-v*` — solo contenido del kit, no toca `tool/`.
+
+---
+
+## 25. `ensure_json`: garantizar claves JSON en un archivo que el kit no posee
+
+Claude Code le agrega a cada commit un trailer `Co-Authored-By: Claude ...`.
+La instrucción de hacerlo la **inyecta el harness**, y su propio texto dice que
+reemplaza cualquier guía de atribución anterior. Se verificó con commits
+reales: ni una skill, ni `config/persona.md`, ni un `CLAUDE.md` global la
+pisan. Lo único que la apaga es el setting `attribution`:
+
+```json
+{ "attribution": { "commit": "", "pr": "" } }
+```
+
+Con el setting el commit sale limpio; sin él aparece el trailer. Esto convierte
+a §19 (la convención escrita que prohíbe el trailer) en una regla que la
+herramienta no podía cumplir sola.
+
+Ese setting vive en `.claude/settings.json`, que es del **proyecto**: ahí están
+sus `permissions`, sus `hooks`, su `model`. Un `dest` normal lo dejaría
+`bloqueado` en todo proyecto que ya lo tenga (`plan.go`, rama `!owned`), y
+sobrescribirlo destruiría trabajo. Es exactamente la clase de problema para la
+que existe `ensure_line` (§14), pero para un archivo cuyo formato es JSON.
+
+```yaml
+- { id: general/attribution, type: config, applies_to: [backend, web, mobile],
+    group: "Team conventions",
+    ensure_json: { file: ".claude/settings.json",
+                   values: { attribution: { commit: "", pr: "" } } } }
+```
+
+| Situación | Resultado |
+|---|---|
+| el archivo no existe | se crea con las claves declaradas y nada más |
+| la clave no está | se fija; las claves hermanas quedan intactas |
+| la clave ya tiene ese valor | no-op, `status` → `ok` |
+| la clave tiene **otro** valor | `Blocked`, nombrando la clave |
+| el archivo no es JSON válido | `Blocked` |
+| una clave intermedia no es un objeto | `Blocked`, nombrando la clave |
+
+### La diferencia con `ensure_line`: acá sí se bloquea
+
+§14 decidió que `AppendLine` **nunca** puede quedar `Blocked`, porque agregar
+una línea no destruye nada. Una clave no es lo mismo: un valor que ya está lo
+puso el proyecto a propósito, y pisarlo revierte en silencio una decisión que
+alguien tomó — que es justo lo que todo `Blocked` de este paquete existe para
+impedir. No hay merge honesto de dos respuestas distintas a la misma pregunta,
+así que decide una persona.
+
+### El unidad de comparación es la hoja, no el objeto
+
+`attribution` se declara como objeto pero se compara y se escribe **clave por
+clave**. Comparar el objeto entero haría que un proyecto que agregó una tercera
+clave adentro entre en conflicto con el kit, cuando en realidad coincide en las
+dos que al kit le importan. `jsonLeaves` aplana la declaración; el merge toca
+solo esas hojas.
+
+### El orden de las claves se preserva
+
+`encoding/json` decodifica un objeto a un `map`, y un map no tiene orden: pasar
+el archivo por `map[string]any` alfabetizaría **todas** las claves del
+proyecto. Un diff así esconde el cambio real. Por eso `internal/plan/jsondoc.go`
+es un documento JSON ordenado: decodifica el orden de claves junto con los
+valores, escribe en ese mismo orden, y agrega las claves nuevas al final. Los
+números se guardan como `json.Number`, o sea el literal exacto que traía el
+archivo: reescribir `1` como `1.0` también sería una edición silenciosa.
+
+**Lo que sí cambia:** la indentación. Un objeto o array escrito en una sola
+línea sale re-expandido a la forma multilínea de 2 espacios (la que escribe
+Claude Code). Los valores y el orden son idénticos; el formato se normaliza.
+
+### El estado que se trackea, otra vez presencia y no hash
+
+Mismo razonamiento que §14: hashear `settings.json` haría que `status` gritara
+"cambiado" cada vez que el equipo toca sus propios permisos.
+
+| Archivo | Se registra en | Lleva hash | `status` pregunta |
+|---|---|---|---|
+| `.claude/persona.md` | `files:` | sí | ¿cambió el contenido? |
+| `CLAUDE.md` | `lines:` | no | ¿sigue estando la línea? |
+| `.claude/settings.json` | `json:` | no | ¿siguen fijadas mis claves? |
+
+`lockfile.EnsuredJSON{Path, Key, Value}` es el registro nuevo. A diferencia de
+`EnsuredLine` **sí** guarda el valor, porque acá el valor es lo que hace
+correcta a la clave: `attribution.commit` presente con otro valor es
+exactamente el estado que el CLI se niega a pisar, y un registro que solo
+dijera "la clave está" no distinguiría los dos casos para quien lee el lock.
+
+Etiqueta propia en `status`: **`FALTA AJUSTE`**.
+
+### Un artefacto sin `src`
+
+`general/attribution` no copia ningún archivo: es puro `ensure_json`. La
+validación del manifiesto exigía `src` siempre; ahora lo exige salvo que el
+artefacto declare `ensure_line` o `ensure_json`. Dos guardas más, porque un
+`src` vacío es peligroso:
+
+- `plan.filePairs` retorna vacío con `Src == ""`. Sin eso,
+  `filepath.Join(kitDir, "")` resuelve al checkout del kit y el walk instalaría
+  **el kit entero** en el proyecto.
+- `repo_manifest_test.go` saltea el `os.Stat` con `Src == ""` y exige que el
+  artefacto tenga algo que garantizar. Sin eso el `Stat` daba sobre la raíz del
+  repo y pasaba trivialmente.
+
+### Dónde vive cada cosa
+
+| Archivo | Qué hace |
+|---|---|
+| `tool/internal/plan/jsondoc.go` | nuevo: documento JSON ordenado (decode/encode/compare) |
+| `tool/internal/plan/ensurejson.go` | nuevo: `ensureJSONAction` (decide) y `mergeJSON` (escribe) |
+| `tool/internal/plan/plan.go` | `Kind` nueva `MergeJSON`, campo `Action.Keys`, mapa `ensuredJSON`, rama en `Apply`, guarda de `Src == ""` en `filePairs` |
+| `tool/internal/plan/summary.go` | `DirSummary.Keys`, contado aparte de los archivos |
+| `tool/internal/lockfile/lockfile.go` | `Installed.JSON []EnsuredJSON`, sin hash y con el porqué |
+| `tool/internal/kit/kit.go` + `manifest.go` | `ensure_json: {file, values}`, validado y normalizado por JSON |
+| `tool/internal/cli/render.go` | `ajustar json`, `FALTA AJUSTE`, las claves en la fila del plan |
+| `tool/internal/tui/view.go` | glifo, las claves en la fila, contador propio en `countKinds`/`summary` |
+| `kit.yaml` | `general/attribution`, en los tres perfiles |
+
+### Decisiones
+
+| Decisión | Razón |
+|---|---|
+| Merge por hoja, no por objeto | Ver arriba: el kit opina sobre dos claves, no sobre el objeto que las contiene. |
+| Un valor distinto **bloquea** | Es la única desviación respecto de `ensure_line`, y está justificada en el doc comment de `ensureJSONAction`. |
+| Codec JSON ordenado propio | Un `map` alfabetizaría el archivo del proyecto. 100 líneas de codec valen menos que un diff que nadie puede leer. |
+| Los valores se normalizan por JSON al parsear | YAML da `int`, JSON da número; sin normalizar, `30` nunca sería igual a `30`. Un valor que YAML acepta pero JSON no puede expresar se rechaza leyendo el manifiesto, no escribiendo en el proyecto de alguien. |
+| `1` y `1.0` son valores distintos | Igualarlos obligaría a reescribir el literal, que es justo lo que acá no se hace. Es la respuesta conservadora. |
+| Se re-chequea el conflicto dentro de `mergeJSON` | `Apply` tiene que converger aunque el archivo cambie entre planear y escribir. Un valor que apareció en el medio es una decisión posterior al plan: se falla, no se gana la carrera en silencio. |
+| Se preserva el modo del archivo | Es del proyecto; el CLI es un invitado. Igual que `appendLine`. |
+| El `file` pasa por `paths.Resolve` | Mismo guard de traversal que cualquier otro destino. Hay test con `../outside`. |
+| Un objeto vacío en `values` se rechaza | Nombra una clave sin ninguna hoja debajo: no compararía ni escribiría nada, y `status` diría `ok` para siempre. Un artefacto no-op es peor que ninguno. |
+| **Quitar una clave queda fuera de alcance** | Igual que §14: si el artefacto se desinstala, `lock.Remove(id)` se lleva el registro y la clave queda en `settings.json`. Editar un archivo ajeno para sacarle algo es otra decisión, más peligrosa que agregarlo. |
+| No se sube `version:` de `kit.yaml` | Igual que §14: es aditivo. Un CLI viejo ignora `ensure_json` en silencio, así que el **`v*` va primero**. |
+
+### Tests, cada uno mapeado a su comportamiento
+
+Verificados al revés, mutando la corrección afuera:
+
+| Mutación | Tests que caen |
+|---|---|
+| M1 `Build` no planea el `ensure_json` | 13 en `plan` + 7 en `cli` |
+| M2 un valor distinto se pisa en vez de bloquear | `TestEnsureJSONBlocksOnAKeyThatHoldsAnotherValue`, `TestEnsureJSONRefusesAValueThatAppearedAfterPlanning`, `TestInitRefusesToOverwriteASettingTheProjectChose` |
+| M3 los objetos se comparan enteros, no hoja por hoja | 6 tests entre `plan` y `cli`, incluido `TestEnsureJSONMergesLeafByLeafNotWholeObject` |
+| M4 el orden de claves no se preserva | `TestEnsureJSONLeavesTheProjectsOwnKeysAlone`, `TestEnsureJSONMergesLeafByLeafNotWholeObject`, `TestEnsureJSONKeepsANumberLiteralAsWritten` |
+
+Más: parseo y validación del manifiesto (`internal/kit/ensurejson_test.go`,
+4 subcasos de rechazo + normalización de números + `src` sigue exigido cuando
+no hay nada que garantizar), round-trip del lockfile
+(`TestEnsuredJSONKeysRoundTrip`, `TestJSONKeysAreOmittedWhenThereAreNone`), y
+render de la TUI (`internal/tui/ensurejson_test.go`).
+
+### Verificación
+
+`gofmt -l .` sin salida · `go vet ./...` limpio · `go test ./... -count=1` 12/12 ·
+goldens de la TUI regenerados **sin diff** (ninguna fixture declara
+`ensure_json`; lo cubren dos tests directos).
+
+Binario real (`--kit-dir` al working tree) contra proyectos scratch, los dos
+casos que importan:
+
+1. Proyecto **sin** `.claude/settings.json` → `init` lo crea conteniendo solo
+   `attribution.commit` y `attribution.pr`.
+2. Proyecto **con** `settings.json` propio (`$schema`, `permissions.allow` con
+   dos entradas, `permissions.deny`, `model`, `env`, `hooks.SessionStart`) →
+   `--dry-run` primero: sha256 sin cambios y el plan nombra las dos claves.
+   Después `init`: las seis claves del proyecto sobreviven, en su orden
+   original y con sus valores; `attribution` aparece al final.
+3. `init` de nuevo → sha256 idéntico, `status` → `ok`.
+4. Se borra `attribution` a mano → `status` dice
+   `general/attribution  FALTA AJUSTE  .claude/settings.json` y `init` la
+   repone.
+5. El proyecto pone `attribution.commit: "Co-Authored-By: Claude"` → `status`
+   dice `MODIFICADO`, `init` se detiene con
+   `«attribution.commit» ya tiene otro valor; lo decidió el proyecto y deal-kit no lo pisa`,
+   y el archivo queda sin tocar.
+
+### Tag
+
+`v*` **y** `kit-v*`: hay cambios bajo `tool/` (la capacidad) y en `kit.yaml`
+(el artefacto que la usa). **El `v*` primero**, por la misma razón que §14: un
+binario anterior a este cambio no conoce `ensure_json`, lo ignora en silencio y
+el trailer sigue apareciendo.

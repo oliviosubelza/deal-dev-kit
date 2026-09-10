@@ -33,6 +33,10 @@ type Artifact struct {
 	// EnsureLine, when set, is a single line the artifact guarantees exists
 	// in a file the kit does NOT own. Nil for every other artifact.
 	EnsureLine *EnsuredLine
+
+	// EnsureJSON, when set, are the JSON keys the artifact guarantees inside a
+	// JSON file the kit does NOT own. Nil for every other artifact.
+	EnsureJSON *EnsuredJSON
 }
 
 // EnsuredLine is the kit.yaml `ensure_line` block: one exact line that must be
@@ -47,6 +51,27 @@ type Artifact struct {
 type EnsuredLine struct {
 	File string // destination template, resolved like any other dest
 	Line string // the exact line, matched and written verbatim
+}
+
+// EnsuredJSON is the kit.yaml `ensure_json` block: the keys that must be
+// present, with those values, inside a JSON file the kit does NOT own. It is
+// the same idea as EnsuredLine, for a file whose format is JSON rather than
+// lines of text.
+//
+// It exists because .claude/settings.json belongs to the project — it carries
+// its permissions, hooks and model — while some kit behaviour is only
+// configurable there. Claude Code appends a `Co-Authored-By: Claude` trailer
+// to every commit unless `attribution` turns it off in settings.json, and no
+// amount of documentation overrides it: the harness injects that instruction
+// itself. Copying a whole settings.json would destroy the project's own keys,
+// and refusing to touch the file would leave the trailer on forever.
+//
+// Values is a nested map matching the shape of the JSON to guarantee. Only
+// its leaves are compared and written; every sibling key in the file is left
+// exactly where it was.
+type EnsuredJSON struct {
+	File   string         // destination template, resolved like any other dest
+	Values map[string]any // nested; normalised through JSON at parse time
 }
 
 // Manifest is the parsed kit.yaml at a given kit version.

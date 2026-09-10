@@ -367,11 +367,11 @@ func (m Model) planLines() []string {
 	}
 
 	if len(changes) > 0 {
-		created, overwritten, deleted, lines := countKinds(changes)
+		created, overwritten, deleted, lines, keys := countKinds(changes)
 		// Say the scope out loud: the plan covers everything selected across
 		// both screens, not just the one the user came from.
 		out = append(out,
-			subtle.Render("Todo el proyecto  ·  "+summary(created, overwritten, deleted, lines)), "")
+			subtle.Render("Todo el proyecto  ·  "+summary(created, overwritten, deleted, lines, keys)), "")
 
 		skills, components := m.splitChanges(changes)
 		budget := 12
@@ -441,6 +441,10 @@ func appendChangeSection(out []string, title string, actions []plan.Action, budg
 			// row reads as "deal-kit is going to write your CLAUDE.md".
 			label += "  " + a.Line
 		}
+		if a.Kind == plan.MergeJSON {
+			// Same: the file is the project's, only these keys are ours.
+			label += "  " + strings.Join(a.Keys, ", ")
+		}
 		out = append(out, "  "+kindGlyph(a.Kind)+bodyText.Render("  "+label))
 	}
 	if len(actions) > len(shown) {
@@ -450,7 +454,7 @@ func appendChangeSection(out []string, title string, actions []plan.Action, budg
 	return append(out, ""), budget - len(shown)
 }
 
-func countKinds(actions []plan.Action) (created, overwritten, deleted, lines int) {
+func countKinds(actions []plan.Action) (created, overwritten, deleted, lines, keys int) {
 	for _, a := range actions {
 		switch a.Kind {
 		case plan.Create:
@@ -461,14 +465,17 @@ func countKinds(actions []plan.Action) (created, overwritten, deleted, lines int
 			deleted++
 		case plan.AppendLine:
 			lines++
+		case plan.MergeJSON:
+			keys++
 		}
 	}
-	return created, overwritten, deleted, lines
+	return created, overwritten, deleted, lines, keys
 }
 
-// summary counts ensured lines apart from files. Folding them into "nuevos"
-// would claim deal-kit created a file it only appended one line to.
-func summary(created, overwritten, deleted, lines int) string {
+// summary counts ensured lines and JSON keys apart from files. Folding them
+// into "nuevos" would claim deal-kit created a file it only appended one line,
+// or two settings, to.
+func summary(created, overwritten, deleted, lines, keys int) string {
 	var parts []string
 	if created > 0 {
 		parts = append(parts, fmt.Sprintf("%d nuevos", created))
@@ -486,6 +493,13 @@ func summary(created, overwritten, deleted, lines int) string {
 		}
 		parts = append(parts, fmt.Sprintf("%d %s", lines, word))
 	}
+	if keys > 0 {
+		word := "ajustes"
+		if keys == 1 {
+			word = "ajuste"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", keys, word))
+	}
 	return strings.Join(parts, "  ·  ")
 }
 
@@ -498,7 +512,7 @@ func kindGlyph(k plan.Kind) string {
 		return warnText.Render("~")
 	case plan.Delete:
 		return badText.Render("−")
-	case plan.AppendLine:
+	case plan.AppendLine, plan.MergeJSON:
 		return goodText.Render("+")
 	}
 	return bg.Render(" ")

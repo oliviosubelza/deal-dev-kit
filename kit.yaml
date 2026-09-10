@@ -41,9 +41,9 @@ import_rewrites:
 
 # What `deal-kit init` installs for each project type.
 profiles:
-  backend: [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, backend/architecture, backend/connections, backend/persistence, backend/generate-schema, backend/review-security]
-  web:     [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, web/architecture, web/ui, frontend/ux-review, ui-kit/base, ui-kit/theme, web/generate-schema]
-  mobile:  [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, mobile/architecture, mobile/offline, frontend/ux-review, mobile/generate-schema]
+  backend: [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, general/attribution, backend/architecture, backend/connections, backend/persistence, backend/generate-schema, backend/review-security]
+  web:     [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, general/attribution, web/architecture, web/ui, frontend/ux-review, ui-kit/base, ui-kit/theme, web/generate-schema]
+  mobile:  [general/conventions, general/security, general/tdd, general/smoke-run, general/persona, general/attribution, mobile/architecture, mobile/offline, frontend/ux-review, mobile/generate-schema]
 
 artifacts:
   # ---- skills ----
@@ -59,6 +59,18 @@ artifacts:
   # the persona silently never loads.
   - { id: general/persona,      type: config, applies_to: [backend, web, mobile], src: config/persona.md, dest: ".claude/persona.md", group: "Team conventions",
       ensure_line: { file: "CLAUDE.md", line: "@.claude/persona.md" } }
+
+  # No src: there is no file to copy. Claude Code appends a
+  # `Co-Authored-By: Claude ...` trailer to every commit it makes, and the
+  # instruction to do so is injected by the harness itself — it overrides any
+  # documentation, including a skill, a persona and a global CLAUDE.md, which
+  # was verified with real commits. The only thing that turns it off is the
+  # `attribution` setting. That setting lives in .claude/settings.json, which
+  # the project owns (its permissions, hooks and model are in there), so
+  # `ensure_json` sets those two keys and leaves the rest of the file alone.
+  - { id: general/attribution,  type: config, applies_to: [backend, web, mobile], group: "Team conventions",
+      ensure_json: { file: ".claude/settings.json",
+                     values: { attribution: { commit: "", pr: "" } } } }
 
   - { id: backend/architecture, type: skill, applies_to: [backend], src: skills/backend/architecture, group: "Backend" }
   - { id: backend/connections,  type: skill, applies_to: [backend], src: skills/backend/connections, group: "Backend" }

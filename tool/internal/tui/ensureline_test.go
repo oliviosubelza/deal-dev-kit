@@ -10,7 +10,7 @@ import (
 // An ensured line is a change, so the plan screen has to count it. A plan that
 // only adds the persona import would otherwise show an empty scope line.
 func TestCountKindsCountsAnEnsuredLineApartFromFiles(t *testing.T) {
-	created, overwritten, deleted, lines := countKinds([]plan.Action{
+	created, overwritten, deleted, lines, _ := countKinds([]plan.Action{
 		{Kind: plan.Create, Path: ".claude/persona.md"},
 		{Kind: plan.AppendLine, Path: "CLAUDE.md", Line: "@.claude/persona.md"},
 	})
@@ -21,11 +21,11 @@ func TestCountKindsCountsAnEnsuredLineApartFromFiles(t *testing.T) {
 		t.Errorf("lines = %d, want 1", lines)
 	}
 
-	got := summary(created, overwritten, deleted, lines)
+	got := summary(created, overwritten, deleted, lines, 0)
 	if !strings.Contains(got, "1 nuevos") || !strings.Contains(got, "1 línea") {
 		t.Errorf("summary = %q, want both the file and the line", got)
 	}
-	if got := summary(0, 0, 0, 1); got != "1 línea" {
+	if got := summary(0, 0, 0, 1, 0); got != "1 línea" {
 		t.Errorf("a line-only plan summarises as %q, want %q", got, "1 línea")
 	}
 }

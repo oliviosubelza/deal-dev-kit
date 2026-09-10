@@ -13,12 +13,15 @@ type DirSummary struct {
 	Overwritten int
 	Deleted     int
 	Lines       int // lines guaranteed inside files the project owns
+	Keys        int // JSON keys guaranteed inside files the project owns
 }
 
 // Total is how many changes the entry accounts for. Ensured lines count: the
 // closing "listo: N archivo(s)" is len(Plan.Changes()), and a tree that leaves
 // one of them out is a tree whose numbers do not add up.
-func (d DirSummary) Total() int { return d.Created + d.Overwritten + d.Deleted + d.Lines }
+func (d DirSummary) Total() int {
+	return d.Created + d.Overwritten + d.Deleted + d.Lines + d.Keys
+}
 
 // maxSummaryRows keeps the closing summary to something a reader takes in at a
 // glance. Beyond it, directories are folded into their parents.
@@ -69,6 +72,7 @@ func foldSingletons(rows []DirSummary) []DirSummary {
 		d.Overwritten += r.Overwritten
 		d.Deleted += r.Deleted
 		d.Lines += r.Lines
+		d.Keys += r.Keys
 	}
 
 	sort.Strings(order)
@@ -85,7 +89,7 @@ func summarizeAtDepth(actions []Action, depth int) []DirSummary {
 
 	for _, a := range actions {
 		switch a.Kind {
-		case Create, Overwrite, Delete, AppendLine:
+		case Create, Overwrite, Delete, AppendLine, MergeJSON:
 		default:
 			continue
 		}
@@ -106,6 +110,8 @@ func summarizeAtDepth(actions []Action, depth int) []DirSummary {
 			d.Deleted++
 		case AppendLine:
 			d.Lines++
+		case MergeJSON:
+			d.Keys++
 		}
 	}
 

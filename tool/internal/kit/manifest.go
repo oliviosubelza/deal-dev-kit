@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -35,10 +36,15 @@ type rawArtifact struct {
 	Requires   []string          `yaml:"requires"`
 	NPM        map[string]string `yaml:"npm"`
 	EnsureLine *rawEnsureLine    `yaml:"ensure_line"`
+	EnsureJSON *rawEnsureJSON    `yaml:"ensure_json"`
 }
 type rawEnsureLine struct {
 	File string `yaml:"file"`
 	Line string `yaml:"line"`
+}
+type rawEnsureJSON struct {
+	File   string         `yaml:"file"`
+	Values map[string]any `yaml:"values"`
 }
 
 // supportedManifestVersions enumerates every kit.yaml schema version this CLI
@@ -91,7 +97,11 @@ func ParseManifest(data []byte) (*Manifest, error) {
 			return nil, fmt.Errorf("kit.yaml: artefacto duplicado %q", ra.ID)
 		}
 		seen[ra.ID] = true
-		if ra.Src == "" {
+		// An artifact normally copies files, so it needs a src. One that only
+		// ensures something inside a file the project owns has nothing to
+		// copy: there is no source file, and demanding a dummy one would put
+		// a lie in the manifest.
+		if ra.Src == "" && ra.EnsureLine == nil && ra.EnsureJSON == nil {
 			return nil, fmt.Errorf("kit.yaml: el artefacto %q no tiene src", ra.ID)
 		}
 		switch ra.Type {
@@ -126,6 +136,13 @@ func ParseManifest(data []byte) (*Manifest, error) {
 				return nil, fmt.Errorf("kit.yaml: el ensure_line del artefacto %q tiene un salto de línea; debe ser una sola línea", ra.ID)
 			}
 			a.EnsureLine = &EnsuredLine{File: ra.EnsureLine.File, Line: ra.EnsureLine.Line}
+		}
+		if ra.EnsureJSON != nil {
+			values, err := parseEnsureJSON(ra.ID, ra.EnsureJSON)
+			if err != nil {
+				return nil, err
+			}
+			a.EnsureJSON = &EnsuredJSON{File: ra.EnsureJSON.File, Values: values}
 		}
 		if a.Group == "" {
 			// Fall back to the ID's first segment so an artifact always lands
@@ -178,6 +195,54 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		}
 	}
 	return m, nil
+}
+
+// parseEnsureJSON validates an `ensure_json` block and normalises its values.
+//
+// Normalisation is the point: YAML and JSON do not decode to the same Go
+// types (a YAML integer is an int, a JSON one is a number literal), and a
+// declared value is only useful if it can be compared against, and written
+// into, a JSON file. Round-tripping it through JSON here means a value YAML
+// accepts but JSON cannot express is rejected while parsing the manifest,
+// not while writing into somebody's project.
+func parseEnsureJSON(id string, raw *rawEnsureJSON) (map[string]any, error) {
+	if raw.File == "" {
+		return nil, fmt.Errorf("kit.yaml: el ensure_json del artefacto %q no tiene file", id)
+	}
+	if len(raw.Values) == 0 {
+		return nil, fmt.Errorf("kit.yaml: el ensure_json del artefacto %q no tiene values", id)
+	}
+	encoded, err := json.Marshal(raw.Values)
+	if err != nil {
+		return nil, fmt.Errorf("kit.yaml: el ensure_json del artefacto %q tiene un valor que no es JSON: %w", id, err)
+	}
+	var values map[string]any
+	if err := json.Unmarshal(encoded, &values); err != nil {
+		return nil, fmt.Errorf("kit.yaml: el ensure_json del artefacto %q tiene un valor que no es JSON: %w", id, err)
+	}
+	// An empty object anywhere in the declaration guarantees nothing: it names
+	// a key with no leaf under it, so nothing would ever be compared or
+	// written and `status` would report ok forever. Reject it here rather than
+	// shipping a no-op artifact.
+	if err := checkJSONLeaves(id, nil, values); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+// checkJSONLeaves rejects an empty object at any depth of a declaration.
+func checkJSONLeaves(id string, path []string, values map[string]any) error {
+	if len(values) == 0 {
+		return fmt.Errorf("kit.yaml: el ensure_json del artefacto %q declara %q sin ninguna clave debajo", id, strings.Join(path, "."))
+	}
+	for k, v := range values {
+		if nested, ok := v.(map[string]any); ok {
+			if err := checkJSONLeaves(id, append(path, k), nested); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // LoadManifest reads kit.yaml from a checked-out kit directory.

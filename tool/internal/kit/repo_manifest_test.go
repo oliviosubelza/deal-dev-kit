@@ -37,8 +37,16 @@ func TestRepositoryManifestIsValid(t *testing.T) {
 		t.Logf("profile %-8s resolves to %d artifacts: %v", pt, len(resolved), ids2(resolved))
 	}
 
-	// Every artifact's src must exist in the repository.
+	// Every artifact's src must exist in the repository. An artifact that only
+	// ensures something inside a file the project owns declares no src, and
+	// joining "" onto root would silently stat the repository itself and pass.
 	for _, a := range m.Artifacts {
+		if a.Src == "" {
+			if a.EnsureLine == nil && a.EnsureJSON == nil {
+				t.Errorf("artifact %q: no src and nothing to ensure", a.ID)
+			}
+			continue
+		}
 		if _, err := os.Stat(filepath.Join(root, a.Src)); err != nil {
 			t.Errorf("artifact %q: src %q does not exist", a.ID, a.Src)
 		}

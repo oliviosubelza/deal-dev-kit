@@ -28,6 +28,7 @@ const (
 	Delete     Kind = "delete"
 	Blocked    Kind = "blocked"     // a local edit or a foreign file; needs a human
 	AppendLine Kind = "append-line" // add one line to a file the project owns
+	MergeJSON  Kind = "merge-json"  // set JSON keys in a file the project owns
 )
 
 // Reasons for removing a file the lockfile records but nothing produces any
@@ -46,8 +47,15 @@ type Action struct {
 	Reason     string
 	Line       string // AppendLine only: the exact line to guarantee
 
-	content []byte // source content for Create and Overwrite
-	hash    string
+	// Keys are the dotted key paths a MergeJSON guarantees, e.g.
+	// "attribution.commit". Exported because every renderer has to name what
+	// is being changed inside a file the project owns: saying only the path
+	// would read as "deal-kit is going to rewrite your settings.json".
+	Keys []string
+
+	content    []byte // source content for Create and Overwrite
+	hash       string
+	jsonLeaves []jsonLeaf // MergeJSON only: the leaves Apply writes
 }
 
 // Plan is the full set of actions for one sync.
@@ -62,6 +70,10 @@ type Plan struct {
 	// owned because the two carry different authority — see
 	// lockfile.EnsuredLine for why one has a hash and the other cannot.
 	ensured map[string][]lockfile.EnsuredLine
+
+	// ensuredJSON is the same record for `ensure_json`: artifact ID -> the
+	// JSON keys it guarantees inside files the project owns.
+	ensuredJSON map[string][]lockfile.EnsuredJSON
 }
 
 // Input is everything Build needs to compute a plan.
@@ -87,9 +99,10 @@ type Input struct {
 // Build computes the plan without touching the project.
 func Build(in Input) (*Plan, error) {
 	p := &Plan{
-		Deps:    kit.NPMDeps(in.Artifacts),
-		owned:   map[string][]lockfile.OwnedFile{},
-		ensured: map[string][]lockfile.EnsuredLine{},
+		Deps:        kit.NPMDeps(in.Artifacts),
+		owned:       map[string][]lockfile.OwnedFile{},
+		ensured:     map[string][]lockfile.EnsuredLine{},
+		ensuredJSON: map[string][]lockfile.EnsuredJSON{},
 	}
 
 	for _, a := range in.Artifacts {
@@ -119,6 +132,17 @@ func Build(in Input) (*Plan, error) {
 		} else if ok {
 			p.Actions = append(p.Actions, act)
 			p.ensured[a.ID] = append(p.ensured[a.ID], rec)
+		}
+
+		// Same for a JSON file the project owns: only the declared keys are
+		// touched, so this produces no file either.
+		if act, recs, ok, err := ensureJSONAction(in, a); err != nil {
+			return nil, fmt.Errorf("artefacto %q: %w", a.ID, err)
+		} else if ok {
+			p.Actions = append(p.Actions, act)
+			if act.Kind != Blocked {
+				p.ensuredJSON[a.ID] = append(p.ensuredJSON[a.ID], recs...)
+			}
 		}
 
 		// A file the artifact used to own but no longer produces is removed —
@@ -198,6 +222,12 @@ type pair struct {
 
 // filePairs enumerates every file an artifact installs and where it lands.
 func filePairs(kitDir string, roots map[string]string, a kit.Artifact) ([]pair, error) {
+	// An artifact that only ensures something inside a file the project owns
+	// has no source to copy. Without this guard the empty src resolves to the
+	// kit checkout itself and the walk below would install the whole kit.
+	if a.Src == "" {
+		return nil, nil
+	}
 	srcAbs := filepath.Join(kitDir, filepath.FromSlash(a.Src))
 	info, err := os.Stat(srcAbs)
 	if err != nil {
@@ -308,7 +338,7 @@ func (p *Plan) Changes() []Action {
 	var out []Action
 	for _, a := range p.Actions {
 		switch a.Kind {
-		case Create, Overwrite, Delete, AppendLine:
+		case Create, Overwrite, Delete, AppendLine, MergeJSON:
 			out = append(out, a)
 		}
 	}
@@ -341,18 +371,22 @@ func (p *Plan) Apply(projectDir string, lock *lockfile.File) error {
 			if err := appendLine(abs, a.Line); err != nil {
 				return err
 			}
+		case MergeJSON:
+			if err := mergeJSON(abs, a.jsonLeaves); err != nil {
+				return err
+			}
 		}
 	}
 
 	for _, id := range p.recordedIDs() {
-		files, lines := p.owned[id], p.ensured[id]
-		// An artifact that ends up owning nothing at all — no file, no line —
-		// is gone from the project, so its record goes with it.
-		if len(files) == 0 && len(lines) == 0 {
+		files, lines, keys := p.owned[id], p.ensured[id], p.ensuredJSON[id]
+		// An artifact that ends up owning nothing at all — no file, no line,
+		// no key — is gone from the project, so its record goes with it.
+		if len(files) == 0 && len(lines) == 0 && len(keys) == 0 {
 			lock.Remove(id)
 			continue
 		}
-		lock.Set(lockfile.Installed{ID: id, Files: files, Lines: lines})
+		lock.Set(lockfile.Installed{ID: id, Files: files, Lines: lines, JSON: keys})
 	}
 	return nil
 }
@@ -368,6 +402,13 @@ func (p *Plan) recordedIDs() []string {
 	}
 	for id := range p.ensured {
 		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	for id := range p.ensuredJSON {
+		if !seen[id] {
+			seen[id] = true
 			out = append(out, id)
 		}
 	}

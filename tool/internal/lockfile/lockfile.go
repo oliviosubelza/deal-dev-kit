@@ -33,6 +33,7 @@ type Installed struct {
 	ID    string        `yaml:"id"`
 	Files []OwnedFile   `yaml:"files"`
 	Lines []EnsuredLine `yaml:"lines,omitempty"`
+	JSON  []EnsuredJSON `yaml:"json,omitempty"`
 }
 
 // EnsuredLine records a line the CLI guaranteed inside a file the project
@@ -54,6 +55,24 @@ type Installed struct {
 type EnsuredLine struct {
 	Path string `yaml:"path"` // slash-separated, relative to the project root
 	Line string `yaml:"line"` // the exact line the CLI guaranteed is present
+}
+
+// EnsuredJSON records one JSON key the CLI guaranteed inside a JSON file the
+// project owns, such as `attribution.commit` in .claude/settings.json.
+//
+// It records the same kind of state as EnsuredLine and for the same reason:
+// the project owns the file and edits it for its own purposes, so hashing it
+// would report drift on every run. What is tracked is one key, not the file.
+//
+// Unlike EnsuredLine it also records the value, because for JSON the value is
+// what makes the key correct: `attribution.commit` present with some other
+// value is exactly the state deal-kit refuses to overwrite, and a record that
+// only said "the key is there" could not tell the two apart when a human
+// reads deal-kit.lock to find out what the CLI did.
+type EnsuredJSON struct {
+	Path  string `yaml:"path"`  // slash-separated, relative to the project root
+	Key   string `yaml:"key"`   // dotted key path, e.g. "attribution.commit"
+	Value string `yaml:"value"` // the value as JSON, exactly as written
 }
 
 // OwnedFile binds a path to the hash the CLI wrote. A mismatch on the next
@@ -108,6 +127,13 @@ func (f *File) sort() {
 				return lines[a].Path < lines[b].Path
 			}
 			return lines[a].Line < lines[b].Line
+		})
+		keys := f.Artifacts[i].JSON
+		sort.Slice(keys, func(a, b int) bool {
+			if keys[a].Path != keys[b].Path {
+				return keys[a].Path < keys[b].Path
+			}
+			return keys[a].Key < keys[b].Key
 		})
 	}
 }

@@ -34,6 +34,11 @@ func renderPlan(w io.Writer, p *plan.Plan, manager pm.Manager, hasManager, noDep
 			// it: this action adds one line and rewrites nothing.
 			target += "  (" + a.Line + ")"
 		}
+		if a.Kind == plan.MergeJSON {
+			// Same reason: only these keys are set, the rest of the file is
+			// left as the project wrote it.
+			target += "  (" + strings.Join(a.Keys, ", ") + ")"
+		}
 		fmt.Fprintf(w, "    %s %s\n", padRight(kindLabel(a.Kind), kindW), target)
 	}
 	if len(p.Deps) > 0 && !noDeps {
@@ -72,6 +77,8 @@ func kindLabel(k plan.Kind) string {
 		return "borrar"
 	case plan.AppendLine:
 		return "agregar línea"
+	case plan.MergeJSON:
+		return "ajustar json"
 	case plan.Blocked:
 		return "bloqueado"
 	case plan.Unchanged:
@@ -120,6 +127,10 @@ func renderStatus(w io.Writer, artifacts []kit.Artifact, orphans []string, p *pl
 			// so the label answers that question and no other: the artifact's
 			// own files are fine, its import line is not in place.
 			fmt.Fprintln(w, statusLine(id, "FALTA IMPORT", detail[id]))
+		case plan.MergeJSON:
+			// Presence again, not content: the artifact's own files are fine,
+			// its keys are not set in a file the project owns.
+			fmt.Fprintln(w, statusLine(id, "FALTA AJUSTE", detail[id]))
 		case plan.Create, plan.Overwrite, plan.Delete:
 			fmt.Fprintln(w, statusLine(id, "DESACTUALIZADO", detail[id]))
 		default:
@@ -154,7 +165,7 @@ func rank(k plan.Kind) int {
 	switch k {
 	case plan.Blocked:
 		return 3
-	case plan.Create, plan.Overwrite, plan.Delete, plan.AppendLine:
+	case plan.Create, plan.Overwrite, plan.Delete, plan.AppendLine, plan.MergeJSON:
 		return 2
 	case plan.Unchanged:
 		return 1
@@ -215,6 +226,11 @@ func counts(r plan.DirSummary) string {
 	// something deal-kit created, because it landed in a file it does not own.
 	if r.Lines > 0 {
 		parts = append(parts, fmt.Sprintf("+%d %s", r.Lines, plural(r.Lines, "línea", "líneas")))
+	}
+	// A merged JSON key is not a file either, and counting it as one would
+	// claim deal-kit created the settings file it only added two keys to.
+	if r.Keys > 0 {
+		parts = append(parts, fmt.Sprintf("+%d %s", r.Keys, plural(r.Keys, "ajuste", "ajustes")))
 	}
 	return strings.Join(parts, "  ")
 }

@@ -3,6 +3,7 @@ package lockfile
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -157,5 +158,74 @@ func TestHashFileMatchesHash(t *testing.T) {
 	}
 	if want := Hash(content); got != want {
 		t.Errorf("HashFile = %q, want %q", got, want)
+	}
+}
+
+// An artifact that owns no file but guarantees JSON keys must survive a save
+// and a load, or the next run has no record that the CLI touched the project.
+func TestEnsuredJSONKeysRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	f := &File{
+		KitVersion: "kit-v0.3.0", ProjectType: "web", Roots: map[string]string{"src": "src"},
+		Artifacts: []Installed{{
+			ID: "general/attribution",
+			JSON: []EnsuredJSON{
+				{Path: ".claude/settings.json", Key: "attribution.pr", Value: `""`},
+				{Path: ".claude/settings.json", Key: "attribution.commit", Value: `""`},
+			},
+		}},
+	}
+	if err := f.Save(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	got, existed, err := Load(dir)
+	if err != nil || !existed {
+		t.Fatalf("Load: %v, existed = %v", err, existed)
+	}
+	rec, ok := got.Artifact("general/attribution")
+	if !ok {
+		t.Fatal("general/attribution is missing after a round trip")
+	}
+	if len(rec.Files) != 0 {
+		t.Errorf("Files = %v, want none", rec.Files)
+	}
+	// Save sorts, so the keys come back in a stable order and a re-run diffs
+	// clean.
+	want := []EnsuredJSON{
+		{Path: ".claude/settings.json", Key: "attribution.commit", Value: `""`},
+		{Path: ".claude/settings.json", Key: "attribution.pr", Value: `""`},
+	}
+	if len(rec.JSON) != len(want) {
+		t.Fatalf("JSON = %v, want %v", rec.JSON, want)
+	}
+	for i := range want {
+		if rec.JSON[i] != want[i] {
+			t.Errorf("JSON[%d] = %v, want %v", i, rec.JSON[i], want[i])
+		}
+	}
+	// The keys are not owned files: nothing may delete or overwrite the
+	// project's settings.json on their account.
+	if got.Owns(".claude/settings.json") {
+		t.Error("settings.json is reported as owned by deal-kit")
+	}
+}
+
+// An artifact with nothing but files must not grow an empty `json:` block in
+// the lockfile.
+func TestJSONKeysAreOmittedWhenThereAreNone(t *testing.T) {
+	dir := t.TempDir()
+	f := &File{Roots: map[string]string{}, Artifacts: []Installed{
+		{ID: "web/ui", Files: []OwnedFile{{Path: "a.md", Hash: "h"}}},
+	}}
+	if err := f.Save(dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "json:") {
+		t.Errorf("lockfile carries an empty json block:\n%s", data)
 	}
 }

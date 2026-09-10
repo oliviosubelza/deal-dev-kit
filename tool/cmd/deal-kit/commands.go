@@ -32,6 +32,8 @@ func commands() []command {
 			func(e cli.Env, fs *flag.FlagSet, f *commandFlags) error { return cli.New(e, fs.Arg(0), f.typeOverride) }},
 		{"init", "Configurar este proyecto: detectar su tipo e instalar su perfil",
 			func(e cli.Env, _ *flag.FlagSet, f *commandFlags) error { return cli.Init(e, f.typeOverride) }},
+		{"install", "Instalar todo: detectar el tipo e instalar todo lo que le aplica",
+			func(e cli.Env, _ *flag.FlagSet, f *commandFlags) error { return cli.Install(e, f.typeOverride) }},
 		{"add", "Instalar artefactos adicionales",
 			func(e cli.Env, fs *flag.FlagSet, _ *commandFlags) error { return cli.Add(e, fs.Args()) }},
 		{"update", "Avanzar la versión fijada del kit y re-sincronizar",

@@ -118,9 +118,68 @@ func (e Env) ProjectRoot() (string, error) {
 	}
 }
 
+// scope is what a setup command installs: the header line that describes the
+// selection, and the artifact ids it starts from. Init and Install differ in
+// nothing else, so the two share setup and each supplies one of these.
+type scope struct {
+	label  string                       // header label, padded like the rest of the block
+	header func(kit.ProjectType) string // header value
+	ids    func(*kit.Manifest, kit.ProjectType) ([]string, error)
+}
+
+// profileScope is the profile kit.yaml declares for the project type: a
+// deliberate subset, and what `deal init` installs.
+var profileScope = scope{
+	label:  "perfil",
+	header: func(pt kit.ProjectType) string { return string(pt) },
+	ids: func(m *kit.Manifest, pt kit.ProjectType) ([]string, error) {
+		ids := m.Profiles[pt]
+		if len(ids) == 0 {
+			return nil, fmt.Errorf("el tipo de proyecto %s no tiene perfil en kit.yaml", pt)
+		}
+		// Cloned because the caller appends to it, and appending to the
+		// manifest's own slice would edit the manifest through its capacity.
+		return slices.Clone(ids), nil
+	},
+}
+
+// everythingScope is every artifact the manifest declares for the project
+// type, which is the same set the interactive browser lists and its "Instalar
+// todo" entry marks. Engram is not a manifest artifact — it is a user-global
+// install the browser offers on its own screen — so it can never be selected
+// here.
+var everythingScope = scope{
+	label:  "alcance",
+	header: func(pt kit.ProjectType) string { return "todo lo que aplica a " + string(pt) },
+	ids: func(m *kit.Manifest, pt kit.ProjectType) ([]string, error) {
+		var ids []string
+		for _, a := range m.Artifacts {
+			if a.Supports(pt) {
+				ids = append(ids, a.ID)
+			}
+		}
+		if len(ids) == 0 {
+			return nil, fmt.Errorf("el tipo de proyecto %s no tiene artefactos en kit.yaml", pt)
+		}
+		return ids, nil
+	},
+}
+
 // Init sets up the current project: detects its type, installs the matching
 // profile, and writes the lockfile.
-func Init(e Env, typeOverride string) error {
+func Init(e Env, typeOverride string) error { return setup(e, typeOverride, profileScope) }
+
+// Install sets up the current project the way Init does, but installs every
+// artifact that applies to its type instead of only the profile. It is the
+// direct form of the browser's "Instalar todo": one shot, no TUI, and it works
+// on a project that has no lockfile yet.
+func Install(e Env, typeOverride string) error { return setup(e, typeOverride, everythingScope) }
+
+// setup resolves the project, the kit and the project type, then syncs the
+// artifacts the scope selects. Anything already recorded in the lockfile stays
+// installed regardless of the scope, so running any of these commands on an
+// initialised project only ever adds what is missing.
+func setup(e Env, typeOverride string, sc scope) error {
 	root, err := e.ProjectRoot()
 	if err != nil {
 		return err
@@ -145,9 +204,9 @@ func Init(e Env, typeOverride string) error {
 	}
 	spec := m.ProjectTypes[pt]
 
-	ids := m.Profiles[pt]
-	if len(ids) == 0 {
-		return fmt.Errorf("el tipo de proyecto %s no tiene perfil en kit.yaml", pt)
+	ids, err := sc.ids(m, pt)
+	if err != nil {
+		return err
 	}
 	// An existing lockfile keeps whatever it already had installed, minus
 	// anything the manifest no longer declares.
@@ -165,7 +224,7 @@ func Init(e Env, typeOverride string) error {
 	fmt.Fprintf(e.Stdout, "  detectado  %s\n", pt)
 	fmt.Fprintf(e.Stdout, "  kit        %s\n", ck.Version)
 	fmt.Fprintf(e.Stdout, "  raíces     %s\n", formatRoots(roots))
-	fmt.Fprintf(e.Stdout, "  perfil     %s\n\n", pt)
+	fmt.Fprintf(e.Stdout, "  %-10s %s\n\n", sc.label, sc.header(pt))
 
 	lock.ProjectType = string(pt)
 	lock.Roots = roots

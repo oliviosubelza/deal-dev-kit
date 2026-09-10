@@ -29,7 +29,8 @@ version with `DEAL_VERSION=v1.4.0` (`DEAL_KIT_VERSION` still works).
 The command is `deal`:
 
 ```sh
-deal init                    # set up this project
+deal init                    # set up this project with its profile
+deal install                 # set up this project with everything that applies
 deal add ui-kit/data-table   # install an artifact
 deal status                  # what is installed, and has it drifted
 deal update                  # move the kit pin forward
@@ -43,6 +44,12 @@ will point at it. The release assets are
 still named `deal-kit_<os>_<arch>` on purpose — `self-update` builds that name
 from a literal, so renaming them would leave every already-installed binary
 unable to find its own update.
+
+`init` installs the profile `kit.yaml` declares for the detected project type;
+`install` installs every artifact that applies to that type, which is what the
+browser's **Instalar todo** entry does — minus Engram, which is a user-global
+install and never part of either. Both work on a project that has no lockfile
+yet, both are additive on one that does, and running either twice is a no-op.
 
 Every command that writes to disk prints its plan first. Pass `--dry-run` to stop
 there, or `--yes` to skip confirmation in CI.

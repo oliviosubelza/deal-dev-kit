@@ -182,3 +182,36 @@ func TestBrowseIsTheDefault(t *testing.T) {
 		t.Errorf("default command = %q, want browse", got)
 	}
 }
+
+func TestInstallIsDispatchedAndNotTreatedAsTheBrowser(t *testing.T) {
+	// A command missing from the table is not an error: it falls through to
+	// the interactive browser, which is how two earlier commands shipped
+	// silently broken. Asserting the name resolves to itself catches that.
+	got, rest := extractCommand([]string{"install", "--yes"})
+	if got != "install" {
+		t.Fatalf("extractCommand(install) = %q, want install", got)
+	}
+	if len(rest) != 1 || rest[0] != "--yes" {
+		t.Errorf("rest = %v, want [--yes]", rest)
+	}
+	c, ok := lookup("install")
+	if !ok {
+		t.Fatal(`lookup("install") failed`)
+	}
+	if c.run == nil || c.summary == "" {
+		t.Error("install has no handler or no summary")
+	}
+}
+
+func TestInstallReadsTheTypeOverride(t *testing.T) {
+	// --type has to reach the handler for install the way it does for init,
+	// or the one-shot command cannot set up a project whose directory name
+	// does not match any project type.
+	_, _, _, flags, err := parseArgs([]string{"install", "--type", "backend"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags.typeOverride != "backend" {
+		t.Errorf("typeOverride = %q, want backend", flags.typeOverride)
+	}
+}

@@ -89,6 +89,53 @@ its own `.mcp.json`, so the MCP server is registered by the install above.
 On Windows the hooks are shell scripts and need Git Bash or WSL: without one of
 them the plugin installs but never runs.
 
+### Sharing Engram memory across machines
+
+Engram keeps its memory in a local SQLite database (`~/.engram/engram.db`), so
+by default the context an agent builds up dies with the machine it was built
+on. Two commands move it, and the local database always stays the source of
+truth.
+
+`engram sync` exports the memories of **the project you are standing in** — it
+resolves the project from the git remote — into `.engram/` inside that
+repository:
+
+```sh
+engram sync                                              # export this project
+git add .engram/ && git commit -m "chore: sync engram memories"
+```
+
+`engram sync --import` reads what teammates pushed back into your database:
+
+```sh
+git pull
+engram sync --import
+engram sync --status                                     # local/remote/pending counts
+```
+
+The export is **project-scoped and incremental**. It writes
+`.engram/manifest.json` plus one gzip chunk per sync under `.engram/chunks/`,
+never a single shared file: a sync that adds one memory writes a chunk holding
+only that memory, and a sync with nothing new prints `Nothing new to sync`.
+Chunks are append-only and named by hash, so two people syncing the same day
+produce different files and git merges them without a conflict. Importing twice
+is a no-op — the chunks already applied are tracked.
+
+Three rules keep this safe:
+
+- **Never run `engram sync --all`.** It drops the project filter and exports
+  every project in your database into whatever repository you are standing in.
+- **Pass `--project` to `engram save`.** The CLI does not detect the project the
+  way `engram sync` does; without the flag the memory is stored with no project
+  and no sync will ever pick it up. Memories the agent writes through its MCP
+  tools already carry the right project.
+- **Treat `.engram/` as public to the repository.** Sync filters by project, not
+  by scope, so a `scope: personal` memory saved against that project travels
+  with it. Keep personal notes under a project name you never sync.
+
+Sharing memory through git is opt-in per repository: a project that never
+commits `.engram/` keeps every memory local.
+
 ## What is in here
 
 | Path        | Contents                                                          |

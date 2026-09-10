@@ -2064,3 +2064,36 @@ Binario real (`--kit-dir` al working tree) contra dos proyectos scratch de tipo
 
 `v*` solamente: el cambio es todo bajo `tool/`. `kit.yaml`, `skills/` y
 `ui-kit/` quedan intactos, así que no hay `kit-v*` que cortar.
+
+## 27. Por qué los assets de release se siguen llamando `deal-kit_<os>_<arch>`
+
+Movido desde el README, que era el único lugar donde estaba escrito. Es una
+decisión con una trampa detrás, así que pertenece acá.
+
+El binario se instala como `deal`. Los assets publicados en cada release, en
+cambio, conservan el nombre viejo:
+
+```
+deal-kit_linux_amd64  ·  deal-kit_darwin_arm64  ·  deal-kit_windows_amd64.exe
+```
+
+**No es un descuido, y renombrarlos rompe a todos los usuarios ya instalados.**
+`self-update` arma el nombre del asset que va a descargar a partir de un
+literal compilado dentro del binario. Un binario instalado hoy busca
+`deal-kit_<os>_<arch>`; si un release futuro publicara `deal_<os>_<arch>`, ese
+binario no encontraría su propia actualización y quedaría varado, sin forma de
+salir salvo reinstalar a mano.
+
+El corolario: el nombre del asset solo puede cambiar en un release que además
+mantenga los nombres viejos como alias, y solo después de que la mayoría del
+equipo haya pasado por al menos un `self-update`. No es un cambio que se hace
+en un PR suelto.
+
+Dos consecuencias más, del mismo origen:
+
+- `self-update` reemplaza el binario en su lugar y **nunca lo renombra**. Una
+  instalación anterior al rename se queda con el nombre que tenga en disco.
+  Para pasar a `deal` hay que correr el instalador otra vez y borrar el
+  archivo viejo; el instalador detecta que sigue en PATH y lo señala.
+- `DEAL_KIT_VERSION` se sigue aceptando además de `DEAL_VERSION`, por la misma
+  razón: hay scripts de CI escritos contra el nombre viejo.

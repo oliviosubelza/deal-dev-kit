@@ -95,6 +95,7 @@ briefing" — tanto local como en `origin`.** Ese commit escribe las 7 skills y 
 (ninguno)     TUI interactiva
 new <dir>     crea el proyecto con su generador oficial, después instala
 init          detecta el tipo e instala el perfil
+install       detecta el tipo e instala todo lo que le aplica (§26)
 add <id>...   instala artefactos adicionales
 update        mueve el pin del kit y re-sincroniza
 status        qué hay instalado y si cambió
@@ -1945,3 +1946,154 @@ casos que importan:
 (el artefacto que la usa). **El `v*` primero**, por la misma razón que §14: un
 binario anterior a este cambio no conoce `ensure_json`, lo ignora en silencio y
 el trailer sigue apareciendo.
+
+## 26. `deal install`: instalar todo sin abrir el navegador (`feat/kit-install-command`)
+
+`deal init` instala el **perfil** que `kit.yaml` declara para el tipo de
+proyecto: un subconjunto elegido a propósito. `deal update` solo re-sincroniza
+lo que ya está. Instalar todo lo que aplica al proyecto solo se podía pedir
+desde el navegador interactivo, entrando a la entrada **Instalar todo** del
+menú. Eso obliga a una sesión de TUI para algo que no necesita ninguna
+decisión, y no sirve en CI ni en un script.
+
+`deal install` es esa entrada del menú como comando directo: un solo tiro,
+sobre un proyecto que puede no tener `deal-kit.lock` todavía.
+
+| Comando | Qué selecciona |
+|---|---|
+| `deal init` | `m.Profiles[pt]` — el perfil del tipo |
+| `deal install` | todo artefacto con `a.Supports(pt)` — lo mismo que lista la TUI |
+| `deal add <id>...` | los ids que se nombran; exige proyecto ya inicializado |
+| `deal update` | lo que el lockfile ya registra |
+
+En el kit real, para `web`: `init` deja 12 artefactos (15 archivos),
+`install` deja 71 (82 archivos).
+
+### `Init` e `Install` son el mismo código con un `scope` distinto
+
+Copiar el cuerpo de `Init` habría duplicado la resolución de raíz, kit,
+manifiesto, lockfile, tipo de proyecto y raíces — seis pasos donde una
+divergencia futura es silenciosa. El cuerpo se extrajo a `setup`, y lo único
+que cambia viaja en un valor:
+
+```go
+type scope struct {
+	label  string                       // etiqueta del encabezado
+	header func(kit.ProjectType) string // valor del encabezado
+	ids    func(*kit.Manifest, kit.ProjectType) ([]string, error)
+}
+```
+
+`Init` pasa `profileScope`, `Install` pasa `everythingScope`, y `setup` hace
+todo lo demás — incluido el merge con lo que el lockfile ya tenía
+(`PartitionInstalled` + `appendUnique`), que es lo que hace que ambos comandos
+sean aditivos y convergentes: correrlos dos veces no escribe nada.
+
+### El encabezado NO dice `perfil`
+
+`Init` imprime `perfil     web`. Repetir esa línea en `install` sería un
+informe falso: el perfil es exactamente lo que este comando no instala. La
+línea es:
+
+```
+  alcance    todo lo que aplica a web
+```
+
+El ancho del campo (`%-10s`) reproduce la alineación del bloque, que antes
+estaba escrita a mano en cada `Fprintf`.
+
+### Engram sigue afuera
+
+Engram **no es un artefacto del manifiesto**: es una instalación global del
+usuario, que la TUI ofrece en su propia pantalla y que
+`internal/cli/interactive.go` corre por separado, después de que el programa sale. Como
+`everythingScope` recorre `m.Artifacts`, no hay forma de que lo seleccione.
+`TestInstallNeverInstallsEngram` lo fija reemplazando los dos puntos de entrada
+(`stubEngram`) y exigiendo que no se aplique ningún plan, igual que
+`TestInstallEverythingNeverIncludesEngram` lo fija del lado de la TUI.
+
+### Detalle: el perfil se clona antes de agregarle nada
+
+`ids := m.Profiles[pt]` seguido de `append` escribe sobre el array del
+manifiesto cuando sobra capacidad. Nunca dio problema porque el manifiesto se
+descarta al terminar el comando, pero con dos comandos compartiendo el camino
+la sutileza deja de valer la pena: `profileScope` devuelve `slices.Clone`.
+
+### Dónde vive cada cosa
+
+| Archivo | Qué hace |
+|---|---|
+| `tool/internal/cli/cli.go` | `scope`, `profileScope`, `everythingScope`, `setup`; `Init` e `Install` quedan en una línea cada uno |
+| `tool/cmd/deal-kit/commands.go` | la fila `install` en la tabla — dispatch y reconocimiento del nombre salen de ahí |
+| `tool/internal/cli/install_test.go` | nuevo: 9 tests del comando |
+| `tool/cmd/deal-kit/args_test.go` | `install` se despacha y `--type` le llega |
+| `README.md` | la lista de `## Usage` y la diferencia entre `init` e `install` |
+
+### Tests
+
+| Test | Comportamiento |
+|---|---|
+| `TestInstallTakesEveryApplicableArtifactAndInitOnlyTheProfile` | el perfil declara 1 y aplican 3: los dos comandos no pueden coincidir por casualidad |
+| `TestInstallSkipsArtifactsOfAnotherProjectType` | "todo" está acotado por `Supports`, no es el manifiesto entero |
+| `TestInstallInitialisesAProjectThatHasNoLockfile` | escribe `deal-kit.lock` con tipo y raíces |
+| `TestInstallHonoursTheTypeOverride` | sin `--type` falla la detección; con `--type` instala |
+| `TestASecondInstallIsANoOp` | convergencia: `ya está actualizado` y ni un byte distinto |
+| `TestInstallOnAnInitialisedProjectAddsOnlyWhatIsMissing` | lo que `init` ya había puesto no se reescribe |
+| `TestInstallNeverInstallsEngram` | ningún plan de Engram, nada bajo `plugins` |
+| `TestInstallHeaderDescribesTheScopeRatherThanTheProfile` | dice `alcance`, no `perfil`; `--dry-run` no escribe el lockfile |
+| `TestInstallWithoutAConfirmationWritesNothing` | solo `y` aplica |
+| `TestInstallIsDispatchedAndNotTreatedAsTheBrowser` | sin la fila en la tabla, el comando caía al navegador |
+
+### Verificación
+
+`gofmt -l .` sin salida · `go vet ./...` limpio · `go test ./... -count=1` 12/12 ·
+goldens de la TUI regenerados **sin diff** (el texto de uso no lo renderiza la
+TUI, lo imprime `cmd/deal-kit/main.go`).
+
+Binario real (`--kit-dir` al working tree) contra dos proyectos scratch de tipo
+`web`:
+
+1. `deal init --type web --yes` → 12 artefactos, 15 archivos.
+2. `deal install --type web --yes` → 71 artefactos, 82 archivos.
+3. `deal install` otra vez → `ya está actualizado`, nada escrito.
+4. `.claude/settings.json` con `attribution.commit` y `attribution.pr` en `""`,
+   o sea el `ensure_json` de §25 sigue funcionando por este camino.
+5. Ningún directorio `plugins` en el proyecto.
+
+### Tag
+
+`v*` solamente: el cambio es todo bajo `tool/`. `kit.yaml`, `skills/` y
+`ui-kit/` quedan intactos, así que no hay `kit-v*` que cortar.
+
+## 27. Por qué los assets de release se siguen llamando `deal-kit_<os>_<arch>`
+
+Movido desde el README, que era el único lugar donde estaba escrito. Es una
+decisión con una trampa detrás, así que pertenece acá.
+
+El binario se instala como `deal`. Los assets publicados en cada release, en
+cambio, conservan el nombre viejo:
+
+```
+deal-kit_linux_amd64  ·  deal-kit_darwin_arm64  ·  deal-kit_windows_amd64.exe
+```
+
+**No es un descuido, y renombrarlos rompe a todos los usuarios ya instalados.**
+`self-update` arma el nombre del asset que va a descargar a partir de un
+literal compilado dentro del binario. Un binario instalado hoy busca
+`deal-kit_<os>_<arch>`; si un release futuro publicara `deal_<os>_<arch>`, ese
+binario no encontraría su propia actualización y quedaría varado, sin forma de
+salir salvo reinstalar a mano.
+
+El corolario: el nombre del asset solo puede cambiar en un release que además
+mantenga los nombres viejos como alias, y solo después de que la mayoría del
+equipo haya pasado por al menos un `self-update`. No es un cambio que se hace
+en un PR suelto.
+
+Dos consecuencias más, del mismo origen:
+
+- `self-update` reemplaza el binario en su lugar y **nunca lo renombra**. Una
+  instalación anterior al rename se queda con el nombre que tenga en disco.
+  Para pasar a `deal` hay que correr el instalador otra vez y borrar el
+  archivo viejo; el instalador detecta que sigue en PATH y lo señala.
+- `DEAL_KIT_VERSION` se sigue aceptando además de `DEAL_VERSION`, por la misma
+  razón: hay scripts de CI escritos contra el nombre viejo.

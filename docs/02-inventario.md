@@ -16,6 +16,13 @@ prosa que lo describe.
 | `command` | 3 | Un slash command de Claude Code (`/generate-schema`) |
 | `agent` | 1 | Un sub-agente que Claude Code puede invocar |
 
+Cada tipo entra en un momento distinto de la sesión de trabajo. La persona
+está activa en cada respuesta; las skills se cargan cuando la tarea coincide
+con su `description`; un command lo escribe una persona; un agent lo delega el
+agente principal; y los componentes son código que el agente importa.
+
+![Cómo trabaja el agente con el kit](diagrams/07-agente-en-accion.svg)
+
 ## Skills
 
 | ID | Nombre instalado | Qué cubre | `applies_to` |

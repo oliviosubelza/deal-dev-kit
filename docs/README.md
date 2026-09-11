@@ -31,9 +31,9 @@ documenta qué contiene, cómo funciona por dentro y cómo presentarlo.
 
 ## Diagramas
 
-Los diagramas se dibujan por separado en Excalidraw y se exportan a `docs/diagrams/`.
-Cada documento los referencia donde corresponde; hasta que los archivos `.svg`
-existan, el enlace queda roto a propósito — es el lugar reservado.
+Los diagramas viven en `docs/diagrams/`: el `.excalidraw` es la fuente
+editable, y el `.svg` es lo que muestran los documentos. Para cambiar uno, se
+edita el `.excalidraw` y se vuelve a exportar el `.svg`.
 
 | Archivo | Qué muestra |
 |---|---|
@@ -43,6 +43,7 @@ existan, el enlace queda roto a propósito — es el lugar reservado.
 | `diagrams/04-reglas-de-propiedad.svg` | Clasificación de archivos + `ensure_line` / `ensure_json` |
 | `diagrams/05-versionado.svg` | `v*` vs `kit-v*`, CI, releases, self-update |
 | `diagrams/06-engram.svg` | Instalación de Engram y sincronización de memorias |
+| `diagrams/07-agente-en-accion.svg` | Qué se activa durante una sesión de Claude Code, cómo y en qué momento |
 
 ## Fuentes
 
